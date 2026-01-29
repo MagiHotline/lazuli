@@ -367,8 +367,6 @@ fn read_disk_sections<R: Read + Seek>(
     decompressor: &mut Decompressor,
     mut reader: R,
 ) -> Result<Vec<DiskSection>, binrw::Error> {
-    assert_eq!(disk.compression, Compression::Zstd);
-
     let mut compressed = vec![0; disk.disk_sections_len as usize];
     reader.seek(SeekFrom::Start(disk.disk_sections_offset))?;
     reader.read_exact(&mut compressed)?;
