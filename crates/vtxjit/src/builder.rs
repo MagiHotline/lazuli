@@ -133,7 +133,7 @@ impl<'ctx> ParserBuilder<'ctx> {
         let mtx_idx = self.bd.ins().uextend(ir::types::I64, mtx_idx);
         let bit_idx = if is_normal {
             let masked = self.bd.ins().band_imm(mtx_idx, 0x3F);
-            
+
             self.bd.ins().iadd_imm(masked, 64)
         } else {
             mtx_idx
@@ -254,7 +254,7 @@ impl<'ctx> ParserBuilder<'ctx> {
         self.bd.set_srcloc(ir::SourceLoc::new(0));
         self.parse::<attributes::PosMatrixIndex>();
 
-        // special case: write all default matrices
+        // special case: write all default tex matrices
         self.bd.ins().store(
             MEMFLAGS,
             self.consts.default_tex,
@@ -290,6 +290,9 @@ impl<'ctx> ParserBuilder<'ctx> {
     pub fn build(mut self) {
         // setup everything needed before the loop
         self.head();
+
+        self.include_matrix(false, self.consts.default_pos);
+        self.include_matrix(true, self.consts.default_pos);
 
         // setup the loop
         let iter_bb = self.bd.create_block();

@@ -558,7 +558,7 @@ impl<const N: usize> AttributeExt for attributes::TexMatrixIndex<N> {
             .ins()
             .load(ir::types::I8, MEMFLAGS_READONLY, ptr, 0);
 
-        parser.include_matrix(true, index);
+        parser.include_matrix(false, index);
 
         parser.bd.ins().store(
             MEMFLAGS,
