@@ -6,6 +6,34 @@ use zerocopy::IntoBytes;
 
 use crate::system::{System, pi};
 
+#[bitos(1)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeviceKind {
+    Nintendo64 = 0,
+    #[default]
+    GameCube   = 1,
+}
+
+#[bitos(16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceDescriptor {
+    #[bits(8)]
+    pub standard: bool,
+    #[bits(11)]
+    pub kind: DeviceKind,
+    #[bits(13)]
+    pub no_rumble: bool,
+}
+
+impl Default for DeviceDescriptor {
+    fn default() -> Self {
+        Self(0)
+            .with_standard(true)
+            .with_kind(DeviceKind::GameCube)
+            .with_no_rumble(true)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
 #[repr(u8)]
 enum Command {
@@ -256,23 +284,15 @@ fn process_cmd(sys: &mut System, channel: usize) {
 
     match cmd {
         Command::Info => {
-            tracing::debug!("info");
-            sys.serial.buffer[..3].copy_from_slice(&[0x09, 0x00, 0x00]);
+            sys.serial.buffer[..2]
+                .copy_from_slice(DeviceDescriptor::default().to_bits().to_be().as_bytes());
+            sys.serial.buffer[2] = 0;
         }
-        Command::Poll => {
-            tracing::debug!("poll");
-            self::poll_controller(sys, channel);
-        }
-        Command::GetOrigin => {
-            tracing::debug!("get_origin");
-            sys.serial.buffer[..10]
-                .copy_from_slice(&[0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00]);
-        }
-        Command::Calibrate => {
-            tracing::debug!("calibrate");
-            sys.serial.buffer[..10]
-                .copy_from_slice(&[0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00]);
-        }
+        Command::Poll => self::poll_controller(sys, channel),
+        Command::GetOrigin => sys.serial.buffer[..10]
+            .copy_from_slice(&[0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00]),
+        Command::Calibrate => sys.serial.buffer[..10]
+            .copy_from_slice(&[0x00, 0x00, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00]),
     }
 }
 
