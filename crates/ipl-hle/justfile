@@ -9,7 +9,7 @@ list:
 [unix]
 build:
     @echo "=> Building ipl-hle.elf ..."
-    @cargo build --release
+    @cargo build --release -Z json-target-spec
     @echo "=> Copying ipl-hle.elf to local resources folder ..."
     @mkdir -p ../../local
     @cp ../../target/powerpc-nintendo-gamecube-eabi/release/ipl-hle.elf ../../local/ipl-hle.elf
@@ -22,7 +22,7 @@ build:
 [windows]
 build:
     @echo "=> Building ipl-hle.elf ..."
-    @cargo build --release
+    @cargo build --release -Z json-target-spec
     @echo "=> Copying ipl-hle.elf to local resources folder ..."
     @New-Item -ItemType Directory -Path ../../local -Force
     @Copy-Item ../../target/powerpc-nintendo-gamecube-eabi/release/ipl-hle.elf ../../local/ipl-hle.elf
