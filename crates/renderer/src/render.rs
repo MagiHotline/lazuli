@@ -4,6 +4,8 @@ mod pipeline;
 mod sampler;
 mod texture;
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -22,7 +24,7 @@ use lazuli::system::gx::xform::{ChannelControl, Light};
 use lazuli::system::gx::{
     CullingMode, DEPTH_24_BIT_MAX, EFB_HEIGHT, EFB_WIDTH, MatrixId, Topology, Vertex, VertexStream,
 };
-use rustc_hash::FxBuildHasher;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use schnellru::{ByLength, LruMap};
 use seq_macro::seq;
 use zerocopy::{FromBytes, IntoBytes};
@@ -83,6 +85,8 @@ pub struct Renderer {
     depth_blitter: DepthBlitter,
     color_copy_buffer: wgpu::Buffer,
     depth_copy_buffer: wgpu::Buffer,
+    color_copy_texture_pool: FxHashMap<wgpu::Extent3d, wgpu::TextureView>,
+    depth_copy_texture_pool: FxHashMap<wgpu::Extent3d, wgpu::TextureView>,
 
     // caches
     pipeline_cache: pipeline::Cache,
@@ -200,6 +204,8 @@ impl Renderer {
             tex_slots: Default::default(),
             color_copy_buffer,
             depth_copy_buffer,
+            color_copy_texture_pool: HashMap::default(),
+            depth_copy_texture_pool: HashMap::default(),
 
             pipeline_cache,
             texture_cache,
@@ -942,7 +948,7 @@ impl Renderer {
     }
 
     pub fn get_color_data(
-        &self,
+        &mut self,
         x: u16,
         y: u16,
         width: u16,
@@ -954,26 +960,32 @@ impl Renderer {
         let divisor = if half { 2 } else { 1 };
         let target_width = width as u32 / divisor;
         let target_height = height as u32 / divisor;
+        let size = wgpu::Extent3d {
+            width: target_width,
+            height: target_height,
+            depth_or_array_layers: 1,
+        };
 
         let row_size = target_width * 4;
         let row_stride = row_size.next_multiple_of(256);
 
-        let copy_target = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("color copy texture"),
-            dimension: wgpu::TextureDimension::D2,
-            size: wgpu::Extent3d {
-                width: target_width,
-                height: target_height,
-                depth_or_array_layers: 1,
-            },
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-            mip_level_count: 1,
-            sample_count: 1,
-        });
+        let copy_target = match self.color_copy_texture_pool.entry(size) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(v) => {
+                let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("color copy texture"),
+                    dimension: wgpu::TextureDimension::D2,
+                    size,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                    mip_level_count: 1,
+                    sample_count: 1,
+                });
 
-        let target_view = copy_target.create_view(&wgpu::TextureViewDescriptor::default());
+                v.insert(tex.create_view(&wgpu::TextureViewDescriptor::default()))
+            }
+        };
 
         let mut encoder = self
             .device
@@ -992,13 +1004,13 @@ impl Renderer {
                 height: height as u32,
                 depth_or_array_layers: 1,
             },
-            &target_view,
+            &copy_target,
             &mut encoder,
         );
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &copy_target,
+                texture: copy_target.texture(),
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::default(),
@@ -1055,32 +1067,45 @@ impl Renderer {
         pixels
     }
 
-    pub fn get_depth_data(&self, x: u16, y: u16, width: u16, height: u16, half: bool) -> Vec<u32> {
+    pub fn get_depth_data(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        half: bool,
+    ) -> Vec<u32> {
         let depth = self.framebuffer.depth();
 
         let divisor = if half { 2 } else { 1 };
         let target_width = width as u32 / divisor;
         let target_height = height as u32 / divisor;
+        let size = wgpu::Extent3d {
+            width: target_width,
+            height: target_height,
+            depth_or_array_layers: 1,
+        };
 
         let row_size = target_width * 4;
         let row_stride = row_size.next_multiple_of(256);
 
-        let copy_target = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth copy texture"),
-            dimension: wgpu::TextureDimension::D2,
-            size: wgpu::Extent3d {
-                width: target_width,
-                height: target_height,
-                depth_or_array_layers: 1,
-            },
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-            mip_level_count: 1,
-            sample_count: 1,
-        });
+        let copy_target = match self.depth_copy_texture_pool.entry(size) {
+            Entry::Occupied(o) => o.into_mut(),
+            Entry::Vacant(v) => {
+                let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("depth copy texture"),
+                    dimension: wgpu::TextureDimension::D2,
+                    size,
+                    format: wgpu::TextureFormat::R32Float,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                    mip_level_count: 1,
+                    sample_count: 1,
+                });
 
-        let target_view = copy_target.create_view(&wgpu::TextureViewDescriptor::default());
+                v.insert(tex.create_view(&wgpu::TextureViewDescriptor::default()))
+            }
+        };
 
         let mut encoder = self
             .device
@@ -1095,13 +1120,13 @@ impl Renderer {
                 height: height as u32,
                 depth_or_array_layers: 1,
             },
-            &target_view,
+            &copy_target,
             &mut encoder,
         );
 
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &copy_target,
+                texture: copy_target.texture(),
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: x as u32,
