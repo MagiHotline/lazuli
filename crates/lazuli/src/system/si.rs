@@ -235,10 +235,7 @@ pub fn poll_controller(sys: &mut System, channel: usize) {
         return;
     }
 
-    let Some(controller) = sys.modules.input.controller(channel) else {
-        return;
-    };
-
+    let controller = sys.modules.input.controller(channel).unwrap_or_default();
     let data = StandardController::from_bits(0)
         .with_analog_y(controller.analog_y)
         .with_analog_x(controller.analog_x)

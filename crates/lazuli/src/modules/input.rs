@@ -31,6 +31,31 @@ pub struct ControllerState {
     pub button_start: bool,
 }
 
+impl Default for ControllerState {
+    fn default() -> Self {
+        Self {
+            analog_x: 128,
+            analog_y: 128,
+            analog_sub_x: 128,
+            analog_sub_y: 128,
+            analog_trigger_left: Default::default(),
+            analog_trigger_right: Default::default(),
+            trigger_z: Default::default(),
+            trigger_left: Default::default(),
+            trigger_right: Default::default(),
+            pad_left: Default::default(),
+            pad_right: Default::default(),
+            pad_down: Default::default(),
+            pad_up: Default::default(),
+            button_a: Default::default(),
+            button_b: Default::default(),
+            button_x: Default::default(),
+            button_y: Default::default(),
+            button_start: Default::default(),
+        }
+    }
+}
+
 /// Trait for controller modules.
 pub trait InputModule: Send {
     fn controller(&mut self, index: usize) -> Option<ControllerState>;
