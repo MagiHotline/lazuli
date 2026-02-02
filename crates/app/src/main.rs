@@ -34,6 +34,7 @@ use crate::windows::{AppWindow, AppWindowState};
 struct App {
     last_update: Instant,
     renderer: Renderer,
+    input: GilrsModule,
     windows: Vec<AppWindowState>,
     runner: Runner,
     cps: u64,
@@ -133,11 +134,12 @@ impl App {
             })),
         };
 
+        let input = GilrsModule::new();
         let modules = Modules {
             audio: Box::new(CpalModule::new()),
             debug: debug_module,
             disk,
-            input: Box::new(GilrsModule::new()),
+            input: Box::new(input.clone()),
             render: Box::new(renderer.clone()),
             vertex: Box::new(JitVertexModule::new()),
         };
@@ -172,6 +174,7 @@ impl App {
         let mut app = Self {
             last_update: Instant::now(),
             renderer,
+            input,
             windows,
             runner,
             cps: 0,
@@ -284,6 +287,37 @@ impl eframe::App for App {
                 .sum::<u64>()
                 * 2;
         }
+
+        ctx.input(|i| {
+            let button = |key| i.key_down(key);
+            let trigger = |key| if i.key_down(key) { 255 } else { 0 };
+            let axis = |low, high| match (i.key_down(low), i.key_down(high)) {
+                (true, false) => 0,
+                (false, true) => 255,
+                _ => 128,
+            };
+
+            self.input.update_fallback(|s| {
+                s.analog_x = axis(egui::Key::A, egui::Key::D);
+                s.analog_y = axis(egui::Key::S, egui::Key::W);
+                s.analog_sub_x = axis(egui::Key::H, egui::Key::L);
+                s.analog_sub_y = axis(egui::Key::J, egui::Key::K);
+                s.analog_trigger_left = trigger(egui::Key::Q);
+                s.analog_trigger_right = trigger(egui::Key::E);
+                s.trigger_z = button(egui::Key::R);
+                s.trigger_left = button(egui::Key::T);
+                s.trigger_right = button(egui::Key::Y);
+                s.pad_left = button(egui::Key::ArrowLeft);
+                s.pad_right = button(egui::Key::ArrowRight);
+                s.pad_down = button(egui::Key::ArrowDown);
+                s.pad_up = button(egui::Key::ArrowUp);
+                s.button_a = button(egui::Key::B);
+                s.button_b = button(egui::Key::N);
+                s.button_x = button(egui::Key::C);
+                s.button_y = button(egui::Key::V);
+                s.button_start = button(egui::Key::Space);
+            });
+        });
 
         if was_running {
             self.runner.start();

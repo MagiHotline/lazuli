@@ -80,7 +80,7 @@ jobs:
       - name: Build ipl-hle
         run: just ipl-hle build
       - name: Build lazuli
-        run: cargo build --release
+        run: cargo build --profile release-dist
       - name: Compress debug sections
         run: objcopy --compress-debug-sections=zstd ./target/release/app ./target/release/${{ needs.generate_name.outputs.name_linux }}
       - name: Upload build artifact
@@ -113,7 +113,7 @@ jobs:
       - name: Build ipl-hle
         run: just ipl-hle build
       - name: Build lazuli
-        run: cargo build --release
+        run: cargo build --profile release-dist
       - name: Rename executable
         run: mv ./target/release/app.exe ./target/release/${{ needs.generate_name.outputs.name_windows }}
       - name: Upload build artifact

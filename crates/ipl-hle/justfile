@@ -9,10 +9,10 @@ list:
 [unix]
 build:
     @echo "=> Building ipl-hle.elf ..."
-    @cargo build --release -Z json-target-spec
+    @cargo build --profile release-dist -Z json-target-spec
     @echo "=> Copying ipl-hle.elf to local resources folder ..."
     @mkdir -p ../../local
-    @cp ../../target/powerpc-nintendo-gamecube-eabi/release/ipl-hle.elf ../../local/ipl-hle.elf
+    @cp ../../target/powerpc-nintendo-gamecube-eabi/release-dist/ipl-hle.elf ../../local/ipl-hle.elf
     @echo "=> Converting ipl-hle.elf to ipl-hle.dol ..."
     @cd ../.. && cargo run -q -p cubetool convert -i local/ipl-hle.elf -o local/ipl-hle.dol
     @echo "=> Done!"
@@ -22,10 +22,10 @@ build:
 [windows]
 build:
     @echo "=> Building ipl-hle.elf ..."
-    @cargo build --release -Z json-target-spec
+    @cargo build --profile release-dist -Z json-target-spec
     @echo "=> Copying ipl-hle.elf to local resources folder ..."
     @New-Item -ItemType Directory -Path ../../local -Force
-    @Copy-Item ../../target/powerpc-nintendo-gamecube-eabi/release/ipl-hle.elf ../../local/ipl-hle.elf
+    @Copy-Item ../../target/powerpc-nintendo-gamecube-eabi/release-dist/ipl-hle.elf ../../local/ipl-hle.elf
     @echo "=> Converting ipl-hle.elf to ipl-hle.dol ..."
     @cd ../.. && cargo run -q -p cubetool convert -i local/ipl-hle.elf -o local/ipl-hle.dol
     @echo "=> Done!"

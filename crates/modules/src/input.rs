@@ -1,23 +1,29 @@
+use std::sync::{Arc, Mutex};
+
 use gilrs::{Axis, Button, GamepadId, Gilrs};
 use lazuli::modules::input::{ControllerState, InputModule};
 
-pub struct GilrsModule {
+struct GilrsInner {
     gilrs: Gilrs,
     active_gamepad: Option<GamepadId>,
+    fallback_state: ControllerState,
 }
 
-impl Default for GilrsModule {
+impl Default for GilrsInner {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GilrsModule {
+impl GilrsInner {
     pub fn new() -> Self {
         let gilrs = Gilrs::new().unwrap();
+        let active_gamepad = gilrs.gamepads().next().map(|g| g.0);
+
         Self {
-            active_gamepad: gilrs.gamepads().next().map(|g| g.0),
             gilrs,
+            active_gamepad,
+            fallback_state: Default::default(),
         }
     }
 
@@ -28,33 +34,28 @@ impl GilrsModule {
             }
         }
     }
-}
 
-impl InputModule for GilrsModule {
-    fn controller(&mut self, index: usize) -> Option<ControllerState> {
-        self.process_events();
+    fn get_state(&mut self) -> ControllerState {
+        let Some(gamepad_id) = self.active_gamepad else {
+            return self.fallback_state;
+        };
 
-        if index != 0 {
-            return None;
-        }
-
-        let gamepad_id = self.active_gamepad?;
         let Some(gamepad) = self.gilrs.connected_gamepad(gamepad_id) else {
             self.active_gamepad = None;
-            return None;
+            return self.fallback_state;
         };
 
         let axis = |axis| (255.0 * ((gamepad.value(axis) + 1.0) / 2.0)) as u8;
-        let button =
+        let trigger =
             |button| (255.0 * gamepad.button_data(button).map_or(0.0, |v| v.value())) as u8;
 
-        Some(ControllerState {
+        ControllerState {
             analog_x: axis(Axis::LeftStickX),
             analog_y: axis(Axis::LeftStickY),
             analog_sub_x: axis(Axis::RightStickX),
             analog_sub_y: axis(Axis::RightStickY),
-            analog_trigger_left: button(Button::LeftTrigger2),
-            analog_trigger_right: button(Button::RightTrigger2),
+            analog_trigger_left: trigger(Button::LeftTrigger2),
+            analog_trigger_right: trigger(Button::RightTrigger2),
             trigger_z: gamepad.is_pressed(Button::Z),
             trigger_right: gamepad.is_pressed(Button::RightTrigger),
             trigger_left: gamepad.is_pressed(Button::LeftTrigger),
@@ -67,6 +68,40 @@ impl InputModule for GilrsModule {
             button_x: gamepad.is_pressed(Button::West),
             button_y: gamepad.is_pressed(Button::North),
             button_start: gamepad.is_pressed(Button::Start),
-        })
+        }
+    }
+}
+
+/// This type is internally reference-counted.
+#[derive(Clone)]
+pub struct GilrsModule(Arc<Mutex<GilrsInner>>);
+
+impl Default for GilrsModule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GilrsModule {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(GilrsInner::new())))
+    }
+
+    pub fn update_fallback(&mut self, f: impl FnOnce(&mut ControllerState)) {
+        let mut inner = self.0.lock().unwrap();
+        f(&mut inner.fallback_state);
+    }
+}
+
+impl InputModule for GilrsModule {
+    fn controller(&mut self, index: usize) -> Option<ControllerState> {
+        let mut inner = self.0.lock().unwrap();
+        inner.process_events();
+
+        if index != 0 {
+            return None;
+        }
+
+        Some(inner.get_state())
     }
 }
