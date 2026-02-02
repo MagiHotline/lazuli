@@ -121,8 +121,8 @@ fn update_fastmem_lut_with_bat(
 ) {
     let physical_start_base = bat.physical_start().value() >> 17;
     let physical_end_base = bat.physical_end().value() >> 17;
-    let logical_start_base = bat.start().value() >> 17;
-    let logical_end_base = bat.end().value() >> 17;
+    let logical_start_base = bat.logical_start().value() >> 17;
+    let logical_end_base = bat.logical_end().value() >> 17;
 
     let logical_range = logical_start_base..=logical_end_base;
     let physical_range = physical_start_base..=physical_end_base;
@@ -144,8 +144,8 @@ fn update_fastmem_lut_physical(ram: *mut u8, l2c: *mut u8, ipl: *mut u8, lut: &m
 fn update_translation_lut_with(translation: &mut TranslationLut, bat: &Bat) {
     let physical_start_base = (bat.physical_start().value() >> 17) as u16;
     let physical_end_base = (bat.physical_end().value() >> 17) as u16;
-    let logical_start_base = bat.start().value() >> 17;
-    let logical_end_base = bat.end().value() >> 17;
+    let logical_start_base = bat.logical_start().value() >> 17;
+    let logical_end_base = bat.logical_end().value() >> 17;
 
     let logical_range = logical_start_base..=logical_end_base;
     let physical_range = physical_start_base..=physical_end_base;
@@ -235,6 +235,13 @@ impl Memory {
                 continue;
             }
 
+            tracing::info!(
+                "dbat{i}: logical({}..={}) -> physical({}..={})",
+                bat.logical_start(),
+                bat.logical_end(),
+                bat.physical_start(),
+                bat.physical_end()
+            );
             update_translation_lut_with(&mut self.data_translation_lut, bat);
             update_fastmem_lut_with_bat(
                 self.ram.as_ptr(),
@@ -246,7 +253,7 @@ impl Memory {
         }
     }
 
-    pub fn build_instr_bat_lut(&mut self, ibats: &[Bat; 4]) {
+    pub fn build_inst_bat_lut(&mut self, ibats: &[Bat; 4]) {
         let _span = tracing::info_span!("building ibat lut").entered();
 
         self.inst_translation_lut.fill(PageTranslation::NO_MAPPING);
@@ -256,6 +263,14 @@ impl Memory {
                 continue;
             }
 
+            tracing::info!(
+                "ibat{i} ({:16X}): logical({}..={}) -> physical({}..={})",
+                bat.to_bits(),
+                bat.logical_start(),
+                bat.logical_end(),
+                bat.physical_start(),
+                bat.physical_end()
+            );
             update_translation_lut_with(&mut self.inst_translation_lut, bat);
         }
     }
@@ -263,7 +278,7 @@ impl Memory {
     pub fn build_bat_lut(&mut self, memory: &MemoryManagement) {
         let _span = tracing::info_span!("building bat luts").entered();
         self.build_data_bat_lut(&memory.dbat);
-        self.build_instr_bat_lut(&memory.ibat);
+        self.build_inst_bat_lut(&memory.ibat);
     }
 
     #[inline(always)]

@@ -774,7 +774,7 @@ impl Bat {
 
     /// The start address of the memory region, inclusive.
     #[inline(always)]
-    pub fn start(&self) -> Address {
+    pub fn logical_start(&self) -> Address {
         Address(
             ((self.effective_address_region().value() as u32) << 17)
             // mask the EPI with the block length! aka floor it to a multiple of block length
@@ -794,8 +794,8 @@ impl Bat {
 
     /// The end address of the memory region, inclusive.
     #[inline(always)]
-    pub fn end(&self) -> Address {
-        self.start() + (self.block_length() - 1)
+    pub fn logical_end(&self) -> Address {
+        self.logical_start() + (self.block_length() - 1)
     }
 
     /// The end address of the memory region, inclusive.
@@ -804,13 +804,13 @@ impl Bat {
         self.physical_start() + (self.block_length() - 1)
     }
 
-    /// Whether the memory region contains the given effective address.
+    /// Whether the memory region contains the given logical address.
     #[inline(always)]
     pub fn contains(&self, addr: Address) -> bool {
-        (self.start()..=self.end()).contains(&addr)
+        (self.logical_start()..=self.logical_end()).contains(&addr)
     }
 
-    /// Translates an effective address into a physical address.
+    /// Translates a logical address into a physical address.
     #[inline(always)]
     pub fn translate(&self, addr: Address) -> Address {
         let offset = addr.value().bits(0, 17);

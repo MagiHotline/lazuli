@@ -425,7 +425,7 @@ const CTX_HOOKS: Hooks = {
         ctx.blocks.clear();
         ctx.sys
             .mem
-            .build_instr_bat_lut(&ctx.sys.cpu.supervisor.memory.ibat);
+            .build_inst_bat_lut(&ctx.sys.cpu.supervisor.memory.ibat);
     }
 
     extern "sysv64-unwind" fn dbat_changed(ctx: &mut Context) {
