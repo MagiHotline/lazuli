@@ -25,7 +25,7 @@ use lazuli::system::gx::{
 use rustc_hash::FxBuildHasher;
 use schnellru::{ByLength, LruMap};
 use seq_macro::seq;
-use zerocopy::IntoBytes;
+use zerocopy::{FromBytes, IntoBytes};
 
 use crate::alloc::Allocator;
 use crate::blit::{ColorBlitter, DepthBlitter};
@@ -269,10 +269,7 @@ impl Renderer {
             Action::SetLight(idx, light) => self.set_light(idx, light),
             Action::ColorCopy { args, response } => self.color_copy(args, response),
             Action::DepthCopy { args, response } => self.depth_copy(args, response),
-            Action::XfbCopy { clear } => {
-                self.debug("XFB copy requested");
-                self.next_pass(clear, true);
-            }
+            Action::XfbCopy { args } => self.xfb_copy(args),
         }
 
         self.actions += 1;
@@ -1044,12 +1041,12 @@ impl Renderer {
         let mut pixels = Vec::with_capacity(target_width as usize * target_height as usize);
         for row in 0..target_height as usize {
             let row_data = &data[row * row_stride as usize..][..row_size as usize];
-            pixels.extend(row_data.chunks_exact(4).map(|c| Rgba8 {
-                r: c[0],
-                g: c[1],
-                b: c[2],
-                a: c[3],
-            }));
+            pixels.extend(
+                row_data
+                    .chunks_exact(4)
+                    .map(Rgba8::read_from_bytes)
+                    .map(Result::unwrap),
+            );
         }
 
         std::mem::drop(mapped);
@@ -1221,5 +1218,10 @@ impl Renderer {
             half,
         );
         response.send(data).unwrap();
+    }
+
+    pub fn xfb_copy(&mut self, args: CopyArgs) {
+        self.debug("XFB copy requested");
+        self.next_pass(args.clear, true);
     }
 }

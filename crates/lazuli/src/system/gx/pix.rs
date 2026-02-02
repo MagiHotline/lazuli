@@ -173,7 +173,7 @@ impl ColorCopyFormat {
 }
 
 #[bitos(32)]
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CopyCmd {
     #[bits(0..2)]
     pub clamp: u2,

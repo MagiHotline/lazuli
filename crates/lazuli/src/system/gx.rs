@@ -1097,16 +1097,17 @@ fn call(sys: &mut System, address: Address, length: u32) {
 
 fn efb_copy(sys: &mut System, cmd: pix::CopyCmd) {
     if cmd.to_xfb() {
-        sys.modules
-            .render
-            .exec(render::Action::XfbCopy { clear: cmd.clear() });
+        let args = render::CopyArgs {
+            src: sys.gpu.pix.copy_src,
+            dims: sys.gpu.pix.copy_dims,
+            half: cmd.half(),
+            clear: cmd.clear(),
+        };
 
-        return;
-    }
-
-    if sys.gpu.pix.control.format().is_depth() {
+        sys.modules.render.exec(render::Action::XfbCopy { args });
+    } else if sys.gpu.pix.control.format().is_depth() {
         let (sender, receiver) = oneshot::channel();
-        let params = render::CopyArgs {
+        let args = render::CopyArgs {
             src: sys.gpu.pix.copy_src,
             dims: sys.gpu.pix.copy_dims,
             half: cmd.half(),
@@ -1114,7 +1115,7 @@ fn efb_copy(sys: &mut System, cmd: pix::CopyCmd) {
         };
 
         sys.modules.render.exec(render::Action::DepthCopy {
-            args: params,
+            args,
             response: sender,
         });
 
@@ -1124,15 +1125,15 @@ fn efb_copy(sys: &mut System, cmd: pix::CopyCmd) {
         };
 
         let divisor = if cmd.half() { 2 } else { 1 };
-        let width = params.dims.width() as u32 / divisor;
-        let height = params.dims.height() as u32 / divisor;
+        let width = args.dims.width() as u32 / divisor;
+        let height = args.dims.height() as u32 / divisor;
         let dst = sys.gpu.pix.copy_dst;
         let stride = sys.gpu.pix.copy_stride;
         let output = &mut sys.mem.ram_mut()[dst.value() as usize..];
         tex::encode_depth_texture(pixels, cmd.depth_format(), stride, width, height, output);
     } else {
         let (sender, receiver) = oneshot::channel();
-        let params = render::CopyArgs {
+        let args = render::CopyArgs {
             src: sys.gpu.pix.copy_src,
             dims: sys.gpu.pix.copy_dims,
             half: cmd.half(),
@@ -1140,18 +1141,18 @@ fn efb_copy(sys: &mut System, cmd: pix::CopyCmd) {
         };
 
         sys.modules.render.exec(render::Action::ColorCopy {
-            args: params,
+            args,
             response: sender,
         });
 
         let Ok(pixels) = receiver.recv() else {
-            tracing::error!("render module did not answer color copy request");
+            tracing::error!("render module did not answer color copy (tex) request");
             return;
         };
 
         let divisor = if cmd.half() { 2 } else { 1 };
-        let width = params.dims.width() as u32 / divisor;
-        let height = params.dims.height() as u32 / divisor;
+        let width = args.dims.width() as u32 / divisor;
+        let height = args.dims.height() as u32 / divisor;
         let dst = sys.gpu.pix.copy_dst;
         let stride = sys.gpu.pix.copy_stride;
         let output = &mut sys.mem.ram_mut()[dst.value() as usize..];

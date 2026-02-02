@@ -190,7 +190,7 @@ pub enum Action {
         response: Sender<Vec<u32>>,
     },
     XfbCopy {
-        clear: bool,
+        args: CopyArgs,
     },
 }
 
