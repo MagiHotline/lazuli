@@ -1,5 +1,5 @@
 //! Pixel engine (PE).
-use bitos::integer::{u2, u3, u4, u10};
+use bitos::integer::{u2, u3, u4, u10, u11};
 use bitos::{BitUtils, Bits, bitos};
 use color::Abgr8;
 use gekko::Address;
@@ -317,6 +317,67 @@ pub struct BlendMode {
     pub logic_op: BlendLogicOp,
 }
 
+#[bitos(32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScissorCorner {
+    #[bits(0..11)]
+    pub y_plus_342: u11,
+    #[bits(12..23)]
+    pub x_plus_342: u11,
+}
+
+#[bitos(32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScissorOffset {
+    #[bits(0..10)]
+    pub y_plus_342_div_2: u10,
+    #[bits(10..20)]
+    pub x_plus_342_div_2: u10,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Scissor {
+    pub top_left: ScissorCorner,
+    pub bottom_right: ScissorCorner,
+    pub offset: ScissorOffset,
+}
+
+impl Scissor {
+    pub fn top_left(&self) -> (u32, u32) {
+        let base_x = self.top_left.x_plus_342().value() as u32;
+        let base_y = self.top_left.y_plus_342().value() as u32;
+        let x = base_x.saturating_sub(342);
+        let y = base_y.saturating_sub(342);
+        (x, y)
+    }
+
+    pub fn bottom_right(&self) -> (u32, u32) {
+        let base_x = self.bottom_right.x_plus_342().value() as u32 + 1;
+        let base_y = self.bottom_right.y_plus_342().value() as u32 + 1;
+        let x = base_x.saturating_sub(342);
+        let y = base_y.saturating_sub(342);
+        (x, y)
+    }
+
+    pub fn dimensions(&self) -> (u32, u32) {
+        let width = self
+            .bottom_right
+            .x_plus_342()
+            .value()
+            .saturating_sub(self.top_left.x_plus_342().value())
+            + 1;
+
+        let height = self
+            .bottom_right
+            .y_plus_342()
+            .value()
+            .saturating_sub(self.top_left.y_plus_342().value())
+            + 1;
+
+        (width as u32, height as u32)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Interface {
     pub control: Control,
@@ -330,6 +391,7 @@ pub struct Interface {
     pub clear_depth: u32,
     pub depth_mode: DepthMode,
     pub blend_mode: BlendMode,
+    pub scissor: Scissor,
     pub token: u32,
 }
 

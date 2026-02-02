@@ -6,7 +6,7 @@ use oneshot::Sender;
 use ordered_float::OrderedFloat;
 use static_assertions::const_assert;
 
-use crate::system::gx::pix::{BlendMode, BufferFormat, ConstantAlpha, DepthMode};
+use crate::system::gx::pix::{BlendMode, BufferFormat, ConstantAlpha, DepthMode, Scissor};
 use crate::system::gx::tev::{AlphaFunction, Constant, DepthTexture, StageOps, StageRefs};
 use crate::system::gx::tex::{ClutFormat, Format, LodLimits, MipmapData, SamplerMode};
 use crate::system::gx::xform::{BaseTexGen, ChannelControl, Light, ProjectionMat};
@@ -138,6 +138,7 @@ impl ClutAddress {
 pub enum Action {
     SetFramebufferFormat(BufferFormat),
     SetViewport(Viewport),
+    SetScissor(Scissor),
     SetCullingMode(CullingMode),
     SetClearColor(Rgba),
     SetClearDepth(f32),

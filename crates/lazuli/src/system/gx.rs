@@ -362,6 +362,14 @@ impl Reg {
             Self::PixelCopyClearAr | Self::PixelCopyClearGb | Self::PixelCopyClearZ
         )
     }
+
+    #[inline]
+    pub fn is_scissor(&self) -> bool {
+        matches!(
+            self,
+            Self::ScissorTopLeft | Self::ScissorBottomRight | Self::ScissorOffset
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -615,6 +623,10 @@ pub fn set_register(sys: &mut System, reg: Reg, value: u32) {
             sys.gpu.env.active_stages = mode.tev_stages_minus_one().value() + 1;
             sys.gpu.env.active_channels = mode.color_channels_count().value();
         }
+
+        Reg::ScissorTopLeft => write_masked!(sys.gpu.pix.scissor.top_left),
+        Reg::ScissorBottomRight => write_masked!(sys.gpu.pix.scissor.bottom_right),
+        Reg::ScissorOffset => write_masked!(sys.gpu.pix.scissor.offset),
 
         Reg::TevRefs01 => write_masked!(sys.gpu.env.stage_refs[0]),
         Reg::TevRefs23 => write_masked!(sys.gpu.env.stage_refs[1]),
@@ -965,6 +977,12 @@ pub fn set_register(sys: &mut System, reg: Reg, value: u32) {
         sys.modules.render.exec(render::Action::SetClearColor(
             sys.gpu.pix.clear_color.into(),
         ));
+    }
+
+    if reg.is_scissor() {
+        sys.modules
+            .render
+            .exec(render::Action::SetScissor(sys.gpu.pix.scissor));
     }
 }
 

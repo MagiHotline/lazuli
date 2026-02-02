@@ -14,7 +14,7 @@ use lazuli::modules::render::{
 };
 use lazuli::system::gx::color::{Rgba, Rgba8};
 use lazuli::system::gx::pix::{
-    self, BlendMode, CompareMode, ConstantAlpha, DepthMode, DstBlendFactor, SrcBlendFactor,
+    self, BlendMode, CompareMode, ConstantAlpha, DepthMode, DstBlendFactor, Scissor, SrcBlendFactor,
 };
 use lazuli::system::gx::tev::AlphaFunction;
 use lazuli::system::gx::tex::ClutFormat;
@@ -92,6 +92,7 @@ pub struct Renderer {
 
     // state
     viewport: Viewport,
+    scissor: Scissor,
     clear_color: wgpu::Color,
     clear_depth: f32,
     current_config: data::Config,
@@ -209,6 +210,7 @@ impl Renderer {
             depth_blitter,
 
             viewport: Default::default(),
+            scissor: Default::default(),
             clear_color: wgpu::Color::BLACK,
             clear_depth: 1.0,
             current_config: Default::default(),
@@ -230,6 +232,7 @@ impl Renderer {
         match action {
             Action::SetFramebufferFormat(fmt) => self.set_framebuffer_format(fmt),
             Action::SetViewport(viewport) => self.set_viewport(viewport),
+            Action::SetScissor(scissor) => self.set_scissor(scissor),
             Action::SetCullingMode(mode) => self.set_culling_mode(mode),
             Action::SetClearColor(color) => self.set_clear_color(color),
             Action::SetClearDepth(depth) => self.clear_depth = depth,
@@ -345,16 +348,27 @@ impl Renderer {
 
     pub fn set_viewport(&mut self, viewport: Viewport) {
         self.debug(format!("set viewport to {viewport:?}"));
-        self.current_pass.set_viewport(
-            viewport.top_left_x,
-            viewport.top_left_y,
-            viewport.width,
-            viewport.height,
-            viewport.near_depth.clamp(0.0, 1.0),
-            viewport.far_depth.clamp(0.0, 1.0),
-        );
+        if self.viewport != viewport {
+            self.current_pass.set_viewport(
+                viewport.top_left_x,
+                viewport.top_left_y,
+                viewport.width,
+                viewport.height,
+                viewport.near_depth.clamp(0.0, 1.0),
+                viewport.far_depth.clamp(0.0, 1.0),
+            );
+            self.viewport = viewport;
+        }
+    }
 
-        self.viewport = viewport;
+    pub fn set_scissor(&mut self, scissor: Scissor) {
+        self.debug(format!("set scissor to {scissor:?}"));
+        if self.scissor != scissor {
+            let (x, y) = scissor.top_left();
+            let (width, height) = scissor.dimensions();
+            self.current_pass.set_scissor_rect(x, y, width, height);
+            self.scissor = scissor;
+        }
     }
 
     pub fn set_culling_mode(&mut self, mode: CullingMode) {
@@ -900,6 +914,13 @@ impl Renderer {
             self.viewport.height,
             self.viewport.near_depth.clamp(0.0, 1.0),
             self.viewport.far_depth.clamp(0.0, 1.0),
+        );
+
+        pass.set_scissor_rect(
+            self.scissor.top_left().0,
+            self.scissor.top_left().1,
+            self.scissor.dimensions().0,
+            self.scissor.dimensions().1,
         );
 
         let prev_transfer_encoder =
