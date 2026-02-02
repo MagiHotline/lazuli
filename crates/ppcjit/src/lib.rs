@@ -311,10 +311,11 @@ struct Translated {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Compiled {
-    code: Vec<u8>,
     user_named_funcs: PrimaryMap<UserExternalNameRef, UserExternalName>,
     relocs: Vec<FinalizedMachReloc>,
     unwind: Option<UnwindInfo>,
+    #[serde(with = "serde_bytes")]
+    code: Vec<u8>,
 }
 
 #[derive(Debug, Error)]
