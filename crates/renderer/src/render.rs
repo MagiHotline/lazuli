@@ -1174,7 +1174,7 @@ impl Renderer {
         for row in 0..target_height as usize {
             let row_data = &data[row * row_stride as usize..][..row_size as usize];
             depth.extend(row_data.chunks_exact(4).map(|c| {
-                let value = f32::from_ne_bytes([c[0], c[1], c[2], c[3]]);
+                let value = f32::read_from_bytes(c).unwrap();
 
                 assert!(value >= 0.0f32);
                 assert!(value <= 1.0f32);

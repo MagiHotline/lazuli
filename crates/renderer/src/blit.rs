@@ -1,6 +1,5 @@
 use glam::Vec4;
 use wesl::include_wesl;
-use wgpu::util::DeviceExt;
 use zerocopy::IntoBytes;
 
 pub struct XfbBlitter {
@@ -30,23 +29,16 @@ impl XfbBlitter {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
             ],
         });
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..16,
+            }],
         });
 
         let shader = include_wesl!("xfb_blit");
@@ -131,11 +123,6 @@ impl XfbBlitter {
             bottom_right_x as f32 / size.width as f32,
             bottom_right_y as f32 / size.height as f32,
         );
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("xfb blit uvs"),
-            usage: wgpu::BufferUsages::UNIFORM,
-            contents: uvs.as_bytes(),
-        });
 
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -149,18 +136,11 @@ impl XfbBlitter {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
             ],
         });
 
         pass.set_pipeline(&self.pipeline);
+        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
     }
@@ -193,23 +173,16 @@ impl ColorBlitter {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
             ],
         });
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..16,
+            }],
         });
 
         let shader = include_wesl!("color_blit");
@@ -286,19 +259,12 @@ impl ColorBlitter {
         assert!(bottom_right_y <= size.height);
         assert!(top_left.z + dimensions.depth_or_array_layers <= size.depth_or_array_layers);
 
-        use zerocopy::IntoBytes;
-
         let uvs = Vec4::new(
             top_left.x as f32 / size.width as f32,
             top_left.y as f32 / size.height as f32,
             bottom_right_x as f32 / size.width as f32,
             bottom_right_y as f32 / size.height as f32,
         );
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("color blit uvs"),
-            usage: wgpu::BufferUsages::UNIFORM,
-            contents: uvs.as_bytes(),
-        });
 
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -312,18 +278,11 @@ impl ColorBlitter {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
             ],
         });
 
         pass.set_pipeline(&self.pipeline);
+        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
     }
@@ -368,28 +327,16 @@ impl DepthBlitter {
         let resolve_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: true,
-                        },
-                        count: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: true,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
+                    count: None,
+                }],
             });
 
         let blit_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -411,29 +358,25 @@ impl DepthBlitter {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
             ],
         });
 
         let resolve_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&resolve_group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..16,
+            }],
         });
 
         let blit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[&blit_group_layout],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..16,
+            }],
         });
 
         let resolve_shader = include_wesl!("depth_resolve");
@@ -583,32 +526,18 @@ impl DepthBlitter {
             bottom_right_x as f32 / size.width as f32,
             bottom_right_y as f32 / size.height as f32,
         );
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("depth resolve uvs"),
-            usage: wgpu::BufferUsages::UNIFORM,
-            contents: uvs.as_bytes(),
-        });
 
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.resolve_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(texture),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(texture),
+            }],
         });
 
         pass.set_pipeline(&self.resolve_pipeline);
+        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
 
@@ -637,11 +566,6 @@ impl DepthBlitter {
             bottom_right_x as f32 / size.width as f32,
             bottom_right_y as f32 / size.height as f32,
         );
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("depth blit uvs"),
-            usage: wgpu::BufferUsages::UNIFORM,
-            contents: uvs.as_bytes(),
-        });
 
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -655,18 +579,11 @@ impl DepthBlitter {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
             ],
         });
 
         pass.set_pipeline(&self.blit_pipeline);
+        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
     }

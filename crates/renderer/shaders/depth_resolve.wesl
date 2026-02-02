@@ -4,7 +4,7 @@ struct VertexOutput {
 };
 
 @group(0) @binding(0) var depth_texture: texture_depth_multisampled_2d;
-@group(0) @binding(1) var<uniform> uvs: vec4f;
+var<push_constant> uvs: vec4f;
 
 var<private> POSITIONS: array<vec2f, 4> = array<vec2f, 4>(
     vec2f(-1.0, 1.0),

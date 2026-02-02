@@ -5,7 +5,7 @@ struct VertexOutput {
 
 @group(0) @binding(0) var texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
-@group(0) @binding(2) var<uniform> uvs: vec4f;
+var<push_constant> uvs: vec4f;
 
 var<private> POSITIONS: array<vec2f, 4> = array<vec2f, 4>(
     vec2f(-1.0, 1.0),
@@ -13,14 +13,6 @@ var<private> POSITIONS: array<vec2f, 4> = array<vec2f, 4>(
     vec2f(1.0, 1.0),
     vec2f(1.0, -1.0),
 );
-
-// var<private> UVS: array<vec2<f32>, 4> = array<vec2<f32>, 4>(
-//     vec2<f32>(0.0, 0.0),
-//     vec2<f32>(0.0, 1.0),
-//     vec2<f32>(1.0, 0.0),
-//     vec2<f32>(1.0, 1.0),
-// );
-
 
 @vertex
 fn vs_main(
