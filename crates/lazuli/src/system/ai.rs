@@ -138,7 +138,7 @@ fn push_data_dma_block(sys: &mut System, ctx: HandlerCtx) {
 
     let total_blocks = sys.audio.dma_control.length_by_32().value();
     if sys.audio.current_dma_block >= total_blocks {
-        sys.dsp.control.set_ai_interrupt(true);
+        sys.dsp.control.set_ai_dma_interrupt(true);
         sys.audio.current_dma_block = 0;
         pi::check_interrupts(sys);
 

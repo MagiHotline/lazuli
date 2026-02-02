@@ -27,28 +27,37 @@ pub struct Mailbox {
 #[bitos(16)]
 #[derive(Debug, Clone, Copy)]
 pub struct Control {
+    /// Reset the DSP.
     #[bits(0)]
     pub reset: bool,
+    /// The CPU->DSP interrupt (external interrupt exception in the DSP), raised by the CPU to
+    /// interrupt the DSP.
     #[bits(1)]
     pub interrupt: bool,
+    /// Halts the DSP (i.e. stops execution of further instructions).
     #[bits(2)]
     pub halt: bool,
+    /// The AI DMA interrupt, raised when a new block of audio data is requested.
     #[bits(3)]
-    pub ai_interrupt: bool,
+    pub ai_dma_interrupt: bool,
     #[bits(4)]
-    pub ai_interrupt_mask: bool,
+    pub ai_dma_interrupt_mask: bool,
+    /// The ARAM DMA interrupt, raised when the DMA finishes.
     #[bits(5)]
-    pub aram_interrupt: bool,
+    pub aram_dma_interrupt: bool,
     #[bits(6)]
-    pub aram_interrupt_mask: bool,
+    pub aram_dma_interrupt_mask: bool,
+    /// The DSP->CPU interrupt, raised by the DSP to interrupt the CPU.
     #[bits(7)]
     pub dsp_interrupt: bool,
     #[bits(8)]
     pub dsp_interrupt_mask: bool,
+    /// Whether the ARAM DMA is in progress.
     #[bits(9)]
     pub aram_dma_ongoing: bool,
     #[bits(10)]
     pub unknown: bool,
+    /// Alternative reset bit, controls whether reset happens in the low vector or the high vector.
     #[bits(11)]
     pub reset_high: bool,
 }
@@ -61,8 +70,8 @@ impl Default for Control {
 
 impl Control {
     pub fn any_interrupt(&self) -> bool {
-        let ai = self.ai_interrupt() && self.ai_interrupt_mask();
-        let aram = self.aram_interrupt() && self.aram_interrupt_mask();
+        let ai = self.ai_dma_interrupt() && self.ai_dma_interrupt_mask();
+        let aram = self.aram_dma_interrupt() && self.aram_dma_interrupt_mask();
         let dsp = self.dsp_interrupt() && self.dsp_interrupt_mask();
         ai || aram || dsp
     }
@@ -160,17 +169,17 @@ pub fn write_control(sys: &mut System, value: Control) {
     // PI DMA interrupts
     sys.dsp
         .control
-        .set_ai_interrupt(sys.dsp.control.ai_interrupt() & !value.ai_interrupt());
+        .set_ai_dma_interrupt(sys.dsp.control.ai_dma_interrupt() & !value.ai_dma_interrupt());
     sys.dsp
         .control
-        .set_ai_interrupt_mask(value.ai_interrupt_mask());
+        .set_ai_dma_interrupt_mask(value.ai_dma_interrupt_mask());
 
     sys.dsp
         .control
-        .set_aram_interrupt(sys.dsp.control.aram_interrupt() & !value.aram_interrupt());
+        .set_aram_dma_interrupt(sys.dsp.control.aram_dma_interrupt() & !value.aram_dma_interrupt());
     sys.dsp
         .control
-        .set_aram_interrupt_mask(value.aram_interrupt_mask());
+        .set_aram_dma_interrupt_mask(value.aram_dma_interrupt_mask());
 
     sys.dsp
         .control
@@ -192,7 +201,7 @@ pub fn aram_dma(sys: &mut System) {
         // software will try to DMA from out-of-bounds ARAM regions to test for ARAM expansion. in
         // this case, just ignore it
         sys.dsp.aram_dma.control.set_length(u31::new(0));
-        sys.dsp.control.set_aram_interrupt(true);
+        sys.dsp.control.set_aram_dma_interrupt(true);
         sys.dsp.control.set_aram_dma_ongoing(false);
         return;
     }
@@ -223,6 +232,6 @@ pub fn aram_dma(sys: &mut System) {
     }
 
     sys.dsp.aram_dma.control.set_length(u31::new(0));
-    sys.dsp.control.set_aram_interrupt(true);
+    sys.dsp.control.set_aram_dma_interrupt(true);
     sys.dsp.control.set_aram_dma_ongoing(false);
 }
