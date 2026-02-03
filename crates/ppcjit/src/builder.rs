@@ -40,7 +40,8 @@ fn is_cacheable(reg: Reg) -> bool {
     match reg {
         Reg::MSR => false,
         Reg::SPR(spr) => match spr {
-            SPR::DEC
+            SPR::LR
+            | SPR::DEC
             | SPR::TBL
             | SPR::TBU
             | SPR::WPAR

@@ -278,7 +278,6 @@ impl BlockBuilder<'_> {
             self.switch_to_bb(continue_block);
             self.current_bb = continue_block;
 
-            // undo PC change from `setup_jump`
             self.set(Reg::PC, current_pc);
 
             CONDITIONAL_BRANCH_INFO

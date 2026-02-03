@@ -325,7 +325,10 @@ pub enum BuildError {
     #[error(transparent)]
     Builder { source: builder::BuilderError },
     #[error(transparent)]
-    Codegen { source: codegen::CodegenError },
+    Codegen {
+        source: codegen::CodegenError,
+        meta: Meta,
+    },
 }
 
 impl Jit {
@@ -370,11 +373,10 @@ impl Jit {
     }
 
     /// Compiles a cranelift function in the code context.
-    fn compile(&mut self) -> Result<Compiled, BuildError> {
+    fn compile(&mut self) -> Result<Compiled, codegen::CodegenError> {
         self.code_ctx
             .compile(&*self.compiler.isa, &mut Default::default())
-            .map_err(|e| e.inner)
-            .context(BuildCtx::Codegen)?;
+            .map_err(|e| e.inner)?;
 
         let code = self.code_ctx.take_compiled_code().unwrap();
         let unwind = code.create_unwind_info(&*self.compiler.isa).ok().flatten();
@@ -411,7 +413,10 @@ impl Jit {
             self.code_ctx.clear();
             self.code_ctx.func = translated.func;
 
-            let compiled = self.compile()?;
+            let compiled = self
+                .compile()
+                .with_context(|_| BuildCtx::Codegen { meta: meta.clone() })?;
+
             self.cache.insert(key, &compiled);
 
             compiled

@@ -52,7 +52,7 @@ pub enum Pattern {
 }
 
 /// Meta information regarding a block.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Meta {
     /// The sequence of instructions this block contains.
     pub seq: Sequence,
