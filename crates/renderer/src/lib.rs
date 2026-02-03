@@ -2,6 +2,7 @@
 
 mod alloc;
 mod blit;
+mod clear;
 mod render;
 
 use std::sync::Arc;

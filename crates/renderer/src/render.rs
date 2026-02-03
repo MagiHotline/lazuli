@@ -31,6 +31,7 @@ use zerocopy::{FromBytes, IntoBytes};
 
 use crate::alloc::Allocator;
 use crate::blit::{ColorBlitter, DepthBlitter};
+use crate::clear::Cleaner;
 use crate::render::framebuffer::Framebuffer;
 use crate::render::pipeline::TexGenStageSettings;
 use crate::render::texture::TextureSettings;
@@ -81,6 +82,7 @@ pub struct Renderer {
     framebuffer: Framebuffer,
     allocators: Allocators,
     tex_slots: [TexSlotSettings; 8],
+    cleaner: Cleaner,
     color_blitter: ColorBlitter,
     depth_blitter: DepthBlitter,
     color_copy_buffer: wgpu::Buffer,
@@ -97,7 +99,7 @@ pub struct Renderer {
     // state
     viewport: Viewport,
     scissor: Scissor,
-    clear_color: wgpu::Color,
+    clear_color: Rgba,
     clear_depth: f32,
     current_config: data::Config,
     current_config_dirty: bool,
@@ -145,6 +147,7 @@ impl Renderer {
             rendered_anything: AtomicBool::new(false),
         });
 
+        let cleaner = Cleaner::new(&device);
         let color_blitter = ColorBlitter::new(&device);
         let depth_blitter = DepthBlitter::new(&device);
 
@@ -202,6 +205,9 @@ impl Renderer {
             framebuffer,
             allocators,
             tex_slots: Default::default(),
+            cleaner,
+            color_blitter,
+            depth_blitter,
             color_copy_buffer,
             depth_copy_buffer,
             color_copy_texture_pool: HashMap::default(),
@@ -212,12 +218,9 @@ impl Renderer {
             sampler_cache,
             textures_group_cache: LruMap::with_hasher(ByLength::new(512), FxBuildHasher),
 
-            color_blitter,
-            depth_blitter,
-
             viewport: Default::default(),
             scissor: Default::default(),
-            clear_color: wgpu::Color::BLACK,
+            clear_color: Default::default(),
             clear_depth: 1.0,
             current_config: Default::default(),
             current_config_dirty: true,
@@ -331,27 +334,34 @@ impl Renderer {
         }
     }
 
+    pub fn apply_scissor_and_viewport(&mut self) {
+        self.current_pass.set_scissor_rect(
+            self.scissor.top_left().0,
+            self.scissor.top_left().1,
+            self.scissor.dimensions().0,
+            self.scissor.dimensions().1,
+        );
+
+        self.current_pass.set_viewport(
+            self.viewport.top_left_x,
+            self.viewport.top_left_y,
+            self.viewport.width,
+            self.viewport.height,
+            self.viewport.near_depth.clamp(0.0, 1.0),
+            self.viewport.far_depth.clamp(0.0, 1.0),
+        );
+    }
+
     pub fn set_viewport(&mut self, viewport: Viewport) {
-        self.debug(format!("set viewport to {viewport:?}"));
         if self.viewport != viewport {
-            self.current_pass.set_viewport(
-                viewport.top_left_x,
-                viewport.top_left_y,
-                viewport.width,
-                viewport.height,
-                viewport.near_depth.clamp(0.0, 1.0),
-                viewport.far_depth.clamp(0.0, 1.0),
-            );
+            self.flush(format_args!("changed viewport to {viewport:?}"));
             self.viewport = viewport;
         }
     }
 
     pub fn set_scissor(&mut self, scissor: Scissor) {
-        self.debug(format!("set scissor to {scissor:?}"));
         if self.scissor != scissor {
-            let (x, y) = scissor.top_left();
-            let (width, height) = scissor.dimensions();
-            self.current_pass.set_scissor_rect(x, y, width, height);
+            self.flush(format_args!("changed scissor to {scissor:?}"));
             self.scissor = scissor;
         }
     }
@@ -365,12 +375,7 @@ impl Renderer {
 
     pub fn set_clear_color(&mut self, rgba: Rgba) {
         self.debug(format!("set clear color to {rgba:?}"));
-        self.clear_color = wgpu::Color {
-            r: rgba.r as f64,
-            g: rgba.g as f64,
-            b: rgba.b as f64,
-            a: rgba.a as f64,
-        };
+        self.clear_color = rgba;
     }
 
     pub fn set_blend_mode(&mut self, mode: BlendMode) {
@@ -802,6 +807,8 @@ impl Renderer {
 
         let textures_group = self.get_textures_group(TexturesGroupEntries { textures, samplers });
 
+        self.apply_scissor_and_viewport();
+
         let pipeline = self
             .pipeline_cache
             .get(&self.device, &self.pipeline_settings);
@@ -831,43 +838,16 @@ impl Renderer {
     }
 
     // Finishes the current render pass and starts the next one.
-    pub fn next_pass(&mut self, clear: bool, copy_to_xfb: bool) {
+    pub fn next_pass(&mut self, copy_to_xfb: bool) {
         self.flush(format_args!("finishing pass"));
 
         let color = self.framebuffer.color();
         let depth = self.framebuffer.depth();
         let multisampled_color = self.framebuffer.multisampled_color();
 
-        let color_op = if clear && self.pipeline_settings.blend.color_write {
-            if !self.pipeline_settings.blend.alpha_write {
-                tracing::warn!("clearing alpha and color when only color should be cleared!");
-            }
-
-            let color = if self.pipeline_settings.has_alpha {
-                self.clear_color
-            } else {
-                wgpu::Color {
-                    r: self.clear_color.r,
-                    g: self.clear_color.g,
-                    b: self.clear_color.b,
-                    a: 1.0,
-                }
-            };
-
-            wgpu::LoadOp::Clear(color)
-        } else {
-            wgpu::LoadOp::Load
-        };
-
-        let depth_op = if clear && self.pipeline_settings.depth.write {
-            wgpu::LoadOp::Clear(self.clear_depth)
-        } else {
-            wgpu::LoadOp::Load
-        };
-
         let transfer_encoder = self.device.create_command_encoder(&Default::default());
         let mut render_encoder = self.device.create_command_encoder(&Default::default());
-        let mut pass = render_encoder
+        let pass = render_encoder
             .begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -875,14 +855,14 @@ impl Renderer {
                     depth_slice: None,
                     resolve_target: Some(color),
                     ops: wgpu::Operations {
-                        load: color_op,
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth,
                     depth_ops: Some(wgpu::Operations {
-                        load: depth_op,
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -892,22 +872,6 @@ impl Renderer {
             })
             .forget_lifetime();
 
-        pass.set_viewport(
-            self.viewport.top_left_x,
-            self.viewport.top_left_y,
-            self.viewport.width,
-            self.viewport.height,
-            self.viewport.near_depth.clamp(0.0, 1.0),
-            self.viewport.far_depth.clamp(0.0, 1.0),
-        );
-
-        pass.set_scissor_rect(
-            self.scissor.top_left().0,
-            self.scissor.top_left().1,
-            self.scissor.dimensions().0,
-            self.scissor.dimensions().1,
-        );
-
         let prev_transfer_encoder =
             std::mem::replace(&mut self.current_transfer_encoder, transfer_encoder);
         let mut prev_render_encoder =
@@ -915,7 +879,6 @@ impl Renderer {
         let previous_pass = std::mem::replace(&mut self.current_pass, pass);
 
         std::mem::drop(previous_pass);
-
         if copy_to_xfb {
             let external = self.framebuffer.external();
             prev_render_encoder.copy_texture_to_texture(
@@ -1189,6 +1152,25 @@ impl Renderer {
         depth
     }
 
+    pub fn clear(&mut self, x: u32, y: u32, width: u32, height: u32) {
+        let color = self
+            .pipeline_settings
+            .blend
+            .color_write
+            .then_some(self.clear_color);
+        let depth = self
+            .pipeline_settings
+            .depth
+            .write
+            .then_some(self.clear_depth);
+
+        self.current_pass.set_scissor_rect(x, y, width, height);
+        self.current_pass
+            .set_viewport(0.0, 0.0, 640.0, 528.0, 0.0, 1.0);
+        self.cleaner
+            .clear_target(color, depth, &mut self.current_pass);
+    }
+
     pub fn color_copy(&mut self, args: CopyArgs, response: oneshot::Sender<Vec<Rgba8>>) {
         let CopyArgs {
             src,
@@ -1206,7 +1188,7 @@ impl Renderer {
             half
         ));
 
-        self.next_pass(clear, false);
+        self.next_pass(false);
         let data = self.get_color_data(
             src.x().value(),
             src.y().value(),
@@ -1215,6 +1197,15 @@ impl Renderer {
             half,
         );
         response.send(data).unwrap();
+
+        if clear {
+            self.clear(
+                src.x().value() as u32,
+                src.y().value() as u32,
+                dims.width() as u32,
+                dims.height() as u32,
+            );
+        }
     }
 
     pub fn depth_copy(&mut self, args: CopyArgs, response: oneshot::Sender<Vec<u32>>) {
@@ -1234,7 +1225,7 @@ impl Renderer {
             half
         ));
 
-        self.next_pass(clear, false);
+        self.next_pass(false);
         let data = self.get_depth_data(
             src.x().value(),
             src.y().value(),
@@ -1243,10 +1234,35 @@ impl Renderer {
             half,
         );
         response.send(data).unwrap();
+
+        if clear {
+            self.clear(
+                src.x().value() as u32,
+                src.y().value() as u32,
+                dims.width() as u32,
+                dims.height() as u32,
+            );
+        }
     }
 
     pub fn xfb_copy(&mut self, args: CopyArgs) {
+        let CopyArgs {
+            src,
+            dims,
+            half: _,
+            clear,
+        } = args;
+
         self.debug("XFB copy requested");
-        self.next_pass(args.clear, true);
+        self.next_pass(true);
+
+        if clear {
+            self.clear(
+                src.x().value() as u32,
+                src.y().value() as u32,
+                dims.width() as u32,
+                dims.height() as u32,
+            );
+        }
     }
 }
