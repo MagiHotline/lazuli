@@ -335,12 +335,20 @@ impl Renderer {
     }
 
     pub fn apply_scissor_and_viewport(&mut self) {
-        self.current_pass.set_scissor_rect(
-            self.scissor.top_left().0,
-            self.scissor.top_left().1,
-            self.scissor.dimensions().0,
-            self.scissor.dimensions().1,
-        );
+        let (x, y) = self.scissor.top_left();
+        let (width, height) = self.scissor.dimensions();
+
+        // HACK: ignore broken scissors for now - requires handling scissor offset...
+        if x + width <= 640 && y + height <= 528 {
+            self.current_pass.set_scissor_rect(
+                self.scissor.top_left().0,
+                self.scissor.top_left().1,
+                self.scissor.dimensions().0,
+                self.scissor.dimensions().1,
+            );
+        } else {
+            tracing::warn!("out of bounds scissor: {:?}", self.scissor);
+        }
 
         self.current_pass.set_viewport(
             self.viewport.top_left_x,
