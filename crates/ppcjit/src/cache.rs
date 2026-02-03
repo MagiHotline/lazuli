@@ -42,7 +42,6 @@ pub struct Cache {
     pending: u16,
     compressor: zstd::bulk::Compressor<'static>,
     decompressor: zstd::bulk::Decompressor<'static>,
-    deser_buffer: Vec<u8>,
     decompress_buffer: Vec<u8>,
 }
 
@@ -61,7 +60,6 @@ impl Cache {
             pending: 0,
             compressor: zstd::bulk::Compressor::new(5).unwrap(),
             decompressor: zstd::bulk::Decompressor::new().unwrap(),
-            deser_buffer: vec![0; 512 * 1024],
             decompress_buffer: vec![0; 4 * 1024 * 1024],
         }
     }
@@ -81,10 +79,7 @@ impl Cache {
             .unwrap();
 
         // deserialize
-        let cursor = Cursor::new(&self.decompress_buffer[..count]);
-        let deserialized =
-            ciborium::from_reader_with_buffer(cursor, &mut self.deser_buffer).unwrap();
-
+        let deserialized = rmp_serde::from_slice(&self.decompress_buffer[..count]).unwrap();
         Some(deserialized)
     }
 
@@ -95,8 +90,7 @@ impl Cache {
             .unwrap();
 
         // serialize
-        let mut serialized = vec![];
-        ciborium::into_writer(&compiled, &mut serialized).unwrap();
+        let serialized = rmp_serde::to_vec(&compiled).unwrap();
 
         // compress
         let compressed = self.compressor.compress(&serialized).unwrap();
