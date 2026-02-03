@@ -34,6 +34,10 @@ On a more technical note, here's what `lazuli` currently offers:
 - IPL HLE used to boot games without an IPL ROM
 - A very simple UI for debugging
 
+Performance is okayish. The biggest bottleneck _by far_ is the DSP LLE interpreter. A JIT is planned,
+but not before most bugs in the interpreter are fixed (audio works fine in some games, and is completely
+broken in others - mostly ones that use ADPCM).
+
 # Building
 
 To build lazuli, you'll need the latest nightly rust toolchain (which can be obtained through `rustup`)
