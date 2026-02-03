@@ -1,5 +1,4 @@
 use std::hash::{Hash, Hasher};
-use std::io::Cursor;
 use std::path::Path;
 
 use cranelift_codegen::isa::TargetIsa;
