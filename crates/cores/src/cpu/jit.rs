@@ -625,7 +625,9 @@ impl Core {
             Err(e) => match e {
                 ppcjit::BuildError::EmptyBlock => panic!("built empty block at pc {}", sys.cpu.pc),
                 ppcjit::BuildError::Builder { source } => panic!("block builder error: {}", source),
-                ppcjit::BuildError::Codegen { source } => panic!("block codegen error: {}", source),
+                ppcjit::BuildError::Codegen { source } => {
+                    panic!("block codegen error: {:?}", source)
+                }
             },
         };
 

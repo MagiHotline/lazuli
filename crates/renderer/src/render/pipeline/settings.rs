@@ -1,7 +1,6 @@
 use lazuli::modules::render::TexEnvStage;
-use lazuli::system::gx::CullingMode;
-use lazuli::system::gx::tev::{AlphaCompare, AlphaLogic, DepthTexture};
 use lazuli::system::gx::xform::BaseTexGen;
+use lazuli::system::gx::{CullingMode, tev};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BlendSettings {
@@ -53,10 +52,10 @@ enum AlphaCompareValue {
 }
 
 impl AlphaCompareValue {
-    pub fn new(alpha_compare: AlphaCompare) -> Self {
+    pub fn new(alpha_compare: tev::alpha::Compare) -> Self {
         match alpha_compare {
-            AlphaCompare::Never => Self::False,
-            AlphaCompare::Always => Self::True,
+            tev::alpha::Compare::Never => Self::False,
+            tev::alpha::Compare::Always => Self::True,
             _ => Self::Unknown,
         }
     }
@@ -114,22 +113,22 @@ impl std::ops::Not for AlphaCompareValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct AlphaFunctionSettings {
-    pub comparison: [AlphaCompare; 2],
-    pub logic: AlphaLogic,
+pub struct AlphaFuncSettings {
+    pub comparison: [tev::alpha::Compare; 2],
+    pub logic: tev::alpha::CompareLogic,
 }
 
-impl AlphaFunctionSettings {
+impl AlphaFuncSettings {
     /// Returns whether this configuration is trivially passable (i.e. never discards).
     pub fn is_noop(&self) -> bool {
         let lhs = AlphaCompareValue::new(self.comparison[0]);
         let rhs = AlphaCompareValue::new(self.comparison[1]);
 
         let result = match self.logic {
-            AlphaLogic::And => lhs & rhs,
-            AlphaLogic::Or => lhs | rhs,
-            AlphaLogic::Xor => lhs ^ rhs,
-            AlphaLogic::Xnor => !(lhs ^ rhs),
+            tev::alpha::CompareLogic::And => lhs & rhs,
+            tev::alpha::CompareLogic::Or => lhs | rhs,
+            tev::alpha::CompareLogic::Xor => lhs ^ rhs,
+            tev::alpha::CompareLogic::Xnor => !(lhs ^ rhs),
         };
 
         result == AlphaCompareValue::True
@@ -139,8 +138,8 @@ impl AlphaFunctionSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct TexEnvSettings {
     pub stages: Vec<TexEnvStage>,
-    pub alpha_func: AlphaFunctionSettings,
-    pub depth_tex: DepthTexture,
+    pub alpha_func: AlphaFuncSettings,
+    pub depth_tex: tev::depth::Texture,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]

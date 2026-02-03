@@ -18,11 +18,10 @@ use lazuli::system::gx::color::{Rgba, Rgba8};
 use lazuli::system::gx::pix::{
     self, BlendMode, CompareMode, ConstantAlpha, DepthMode, DstBlendFactor, Scissor, SrcBlendFactor,
 };
-use lazuli::system::gx::tev::AlphaFunction;
-use lazuli::system::gx::tex::ClutFormat;
 use lazuli::system::gx::xform::{ChannelControl, Light};
 use lazuli::system::gx::{
     CullingMode, DEPTH_24_BIT_MAX, EFB_HEIGHT, EFB_WIDTH, MatrixId, Topology, Vertex, VertexStream,
+    tev, tex,
 };
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use schnellru::{ByLength, LruMap};
@@ -454,8 +453,8 @@ impl Renderer {
         }
     }
 
-    pub fn set_alpha_function(&mut self, func: AlphaFunction) {
-        let settings = pipeline::AlphaFunctionSettings {
+    pub fn set_alpha_function(&mut self, func: tev::alpha::Function) {
+        let settings = pipeline::AlphaFuncSettings {
             comparison: func.comparison(),
             logic: func.logic(),
         };
@@ -573,7 +572,7 @@ impl Renderer {
         sampler: Sampler,
         scaling: Scaling,
         clut_addr: ClutAddress,
-        clut_fmt: ClutFormat,
+        clut_fmt: tex::ClutFormat,
     ) {
         let new = TexSlotSettings {
             settings: TextureSettings {

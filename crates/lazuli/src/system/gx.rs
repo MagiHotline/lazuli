@@ -932,9 +932,9 @@ pub fn set_register(sys: &mut System, reg: Reg, value: u32) {
             sys.gpu.env.constants[2].g = g;
         }
         Reg::TevAlphaFunc => {
-            write_masked!(sys.gpu.env.alpha_function);
+            write_masked!(sys.gpu.env.alpha_func);
             sys.modules.render.exec(render::Action::SetAlphaFunction(
-                sys.gpu.env.alpha_function.clone(),
+                sys.gpu.env.alpha_func.clone(),
             ));
         }
 

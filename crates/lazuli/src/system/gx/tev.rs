@@ -1,11 +1,15 @@
 //! Texture Environment (TEV).
+pub mod alpha;
+pub mod color;
+pub mod depth;
+
+use ::color::Rgba16;
 use bitos::bitos;
-use bitos::integer::{u2, u3};
-use color::Rgba16;
+use bitos::integer::u3;
 
 #[bitos(3)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorChannel {
+pub enum Channel {
     Channel0            = 0x0,
     Channel1            = 0x1,
     Reserved0           = 0x2,
@@ -26,7 +30,7 @@ pub struct StageRefs {
     #[bits(6)]
     pub map_enable: bool,
     #[bits(7..10)]
-    pub color: ColorChannel,
+    pub channel: Channel,
 }
 
 #[bitos(32)]
@@ -87,78 +91,6 @@ pub struct StageConstsPair {
     pub color_b: Constant,
     #[bits(19..24)]
     pub alpha_b: Constant,
-}
-
-#[bitos(4)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorInputSrc {
-    R3Color   = 0x0,
-    R3Alpha   = 0x1,
-    R0Color   = 0x2,
-    R0Alpha   = 0x3,
-    R1Color   = 0x4,
-    R1Alpha   = 0x5,
-    R2Color   = 0x6,
-    R2Alpha   = 0x7,
-    TexColor  = 0x8,
-    TexAlpha  = 0x9,
-    ChanColor = 0xA,
-    ChanAlpha = 0xB,
-    One       = 0xC,
-    Half      = 0xD,
-    Constant  = 0xE,
-    Zero      = 0xF,
-}
-
-impl std::fmt::Display for ColorInputSrc {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::R3Color => "R3.C",
-            Self::R3Alpha => "R3.A",
-            Self::R0Color => "R0.C",
-            Self::R0Alpha => "R0.A",
-            Self::R1Color => "R1.C",
-            Self::R1Alpha => "R1.A",
-            Self::R2Color => "R2.C",
-            Self::R2Alpha => "R2.A",
-            Self::TexColor => "Tex.C",
-            Self::TexAlpha => "Tex.A",
-            Self::ChanColor => "Channel.C",
-            Self::ChanAlpha => "Channel.A",
-            Self::One => "1",
-            Self::Half => "0.5",
-            Self::Constant => "Constant",
-            Self::Zero => "0",
-        })
-    }
-}
-
-#[bitos(3)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlphaInputSrc {
-    R3Alpha   = 0x0,
-    R0Alpha   = 0x1,
-    R1Alpha   = 0x2,
-    R2Alpha   = 0x3,
-    TexAlpha  = 0x4,
-    ChanAlpha = 0x5,
-    Constant  = 0x6,
-    Zero      = 0x7,
-}
-
-impl std::fmt::Display for AlphaInputSrc {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::R3Alpha => "R3.A",
-            Self::R0Alpha => "R0.A",
-            Self::R1Alpha => "R1.A",
-            Self::R2Alpha => "R2.A",
-            Self::TexAlpha => "Tex.A",
-            Self::ChanAlpha => "Channel.A",
-            Self::Constant => "Constant",
-            Self::Zero => "0",
-        })
-    }
 }
 
 #[bitos(2)]
@@ -235,330 +167,10 @@ pub enum OutputDst {
     R2 = 0b11,
 }
 
-#[bitos(32)]
-#[derive(Clone, PartialEq, Eq, Hash, Default)]
-pub struct StageColor {
-    #[bits(0..4)]
-    pub input_d: ColorInputSrc,
-    #[bits(4..8)]
-    pub input_c: ColorInputSrc,
-    #[bits(8..12)]
-    pub input_b: ColorInputSrc,
-    #[bits(12..16)]
-    pub input_a: ColorInputSrc,
-    #[bits(16..18)]
-    pub bias: Bias,
-    #[bits(18)]
-    pub negate: bool,
-    #[bits(18)]
-    pub compare_op: CompareOp,
-    #[bits(19)]
-    pub clamp: bool,
-    #[bits(20..22)]
-    pub scale: Scale,
-    #[bits(20..22)]
-    pub compare_target: CompareTarget,
-    #[bits(22..24)]
-    pub output: OutputDst,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageColorPattern {
-    PassChanColor,
-    PassChanAlpha,
-    PassTexColor,
-    PassTexAlpha,
-    Modulate,
-    ModulateDouble,
-    Add,
-    SubTexFromColor,
-    SubColorFromTex,
-    Mix,
-}
-
-impl StageColor {
-    pub fn is_comparative(&self) -> bool {
-        self.bias() == Bias::Comparative
-    }
-
-    pub fn pattern(&self) -> Option<StageColorPattern> {
-        use {ColorInputSrc as Input, StageColorPattern as Pattern};
-
-        if self.is_comparative() {
-            return None;
-        }
-
-        let inputs = (
-            self.input_a(),
-            self.input_b(),
-            self.input_c(),
-            self.input_d(),
-        );
-        let positive = !self.negate();
-        let scale = self.scale();
-        let bias = self.bias();
-
-        let no_scale_no_bias = scale == Scale::One && bias == Bias::Zero;
-        let simple = positive && no_scale_no_bias;
-
-        Some(match inputs {
-            (Input::Zero, Input::Zero, Input::Zero, Input::ChanColor) if simple => {
-                Pattern::PassChanColor
-            }
-            (Input::Zero, Input::Zero, Input::Zero, Input::ChanAlpha) if simple => {
-                Pattern::PassChanAlpha
-            }
-            (Input::Zero, Input::Zero, Input::Zero, Input::TexColor) if simple => {
-                Pattern::PassTexColor
-            }
-            (Input::Zero, Input::Zero, Input::Zero, Input::TexAlpha) if simple => {
-                Pattern::PassTexAlpha
-            }
-            (Input::Zero, Input::TexColor, Input::ChanColor, Input::Zero) if simple => {
-                Pattern::Modulate
-            }
-            (Input::Zero, Input::ChanColor, Input::TexColor, Input::Zero) if simple => {
-                Pattern::Modulate
-            }
-            (Input::Zero, Input::TexColor, Input::ChanColor, Input::Zero)
-                if positive && scale == Scale::Two && bias == Bias::Zero =>
-            {
-                Pattern::ModulateDouble
-            }
-            (Input::Zero, Input::ChanColor, Input::TexColor, Input::Zero)
-                if positive && scale == Scale::Two && bias == Bias::Zero =>
-            {
-                Pattern::ModulateDouble
-            }
-            (Input::TexColor, Input::Zero, Input::Zero, Input::ChanColor) if simple => Pattern::Add,
-            (Input::ChanColor, Input::Zero, Input::Zero, Input::TexColor) if simple => Pattern::Add,
-            (Input::TexColor, Input::Zero, Input::Zero, Input::ChanColor)
-                if no_scale_no_bias && !positive =>
-            {
-                Pattern::SubTexFromColor
-            }
-            (Input::ChanColor, Input::Zero, Input::Zero, Input::TexColor)
-                if no_scale_no_bias && !positive =>
-            {
-                Pattern::SubColorFromTex
-            }
-            (Input::TexColor, Input::ChanColor, Input::TexAlpha, Input::Zero) if simple => {
-                Pattern::Mix
-            }
-            (Input::ChanColor, Input::TexColor, Input::ChanAlpha, Input::Zero) if simple => {
-                Pattern::Mix
-            }
-            _ => return None,
-        })
-    }
-}
-
-impl std::fmt::Debug for StageColor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pattern = self
-            .pattern()
-            .map(|p| format!(" [{p:?}]"))
-            .unwrap_or_default();
-
-        if self.is_comparative() {
-            let a = self.input_a();
-            let b = self.input_b();
-            let c = self.input_c();
-            let d = self.input_d();
-            let op = self.compare_op();
-            let target = self.compare_target();
-            let output = self.output();
-
-            write!(
-                f,
-                "{output:?}.C = ({a}.{target:?} {op} {b}.{target:?}) ? {c} : {d}{pattern}"
-            )
-        } else {
-            let a = self.input_a();
-            let b = self.input_b();
-            let c = self.input_c();
-            let d = self.input_d();
-            let sign = if self.negate() { "-" } else { "" };
-            let bias = self.bias();
-            let scale = self.scale().value();
-            let output = self.output();
-
-            let d = if d != ColorInputSrc::Zero {
-                format!(" + {d}")
-            } else {
-                String::new()
-            };
-
-            let bias = if bias != Bias::Zero {
-                format!(" + {}", bias.value())
-            } else {
-                String::new()
-            };
-
-            write!(
-                f,
-                "{output:?}.C = {scale} * ({sign}mix({a}, {b}, {c}){d}{bias}){pattern}"
-            )
-        }
-    }
-}
-
-#[bitos(32)]
-#[derive(Clone, PartialEq, Eq, Hash, Default)]
-pub struct StageAlpha {
-    #[bits(0..2)]
-    pub rasterizer_swap: u2,
-    #[bits(2..4)]
-    pub texture_swap: u2,
-    #[bits(4..7)]
-    pub input_d: AlphaInputSrc,
-    #[bits(7..10)]
-    pub input_c: AlphaInputSrc,
-    #[bits(10..13)]
-    pub input_b: AlphaInputSrc,
-    #[bits(13..16)]
-    pub input_a: AlphaInputSrc,
-    #[bits(16..18)]
-    pub bias: Bias,
-    #[bits(18)]
-    pub negate: bool,
-    #[bits(18)]
-    pub compare_op: CompareOp,
-    #[bits(19)]
-    pub clamp: bool,
-    #[bits(20..22)]
-    pub scale: Scale,
-    #[bits(20..22)]
-    pub compare_target: CompareTarget,
-    #[bits(22..24)]
-    pub output: OutputDst,
-}
-
-impl std::fmt::Debug for StageAlpha {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_comparative() {
-            let a = self.input_a();
-            let b = self.input_b();
-            let c = self.input_c();
-            let d = self.input_d();
-            let op = self.compare_op();
-            let target = self.compare_target();
-            let output = self.output();
-
-            write!(
-                f,
-                "{output:?}.A = ({a}.{target:?} {op} {b}.{target:?}) ? {c} : {d}"
-            )
-        } else {
-            let a = self.input_a();
-            let b = self.input_b();
-            let c = self.input_c();
-            let d = self.input_d();
-            let sign = if self.negate() { "-" } else { "" };
-            let bias = self.bias();
-            let scale = self.scale().value();
-            let output = self.output();
-
-            let d = if d != AlphaInputSrc::Zero {
-                format!(" + {d}")
-            } else {
-                String::new()
-            };
-
-            let bias = if bias != Bias::Zero {
-                format!(" + {}", bias.value())
-            } else {
-                String::new()
-            };
-
-            write!(
-                f,
-                "{output:?}.A = {scale} * ({sign}mix({a}, {b}, {c}){d}{bias})"
-            )
-        }
-    }
-}
-
-impl StageAlpha {
-    pub fn is_comparative(&self) -> bool {
-        self.bias() == Bias::Comparative
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct StageOps {
-    pub color: StageColor,
-    pub alpha: StageAlpha,
-}
-
-#[bitos(3)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum AlphaCompare {
-    #[default]
-    Never          = 0x0,
-    Less           = 0x1,
-    Equal          = 0x2,
-    LessOrEqual    = 0x3,
-    Greater        = 0x4,
-    NotEqual       = 0x5,
-    GreaterOrEqual = 0x6,
-    Always         = 0x7,
-}
-
-#[bitos(2)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum AlphaLogic {
-    #[default]
-    And  = 0b00,
-    Or   = 0b01,
-    Xor  = 0b10,
-    Xnor = 0b11,
-}
-
-#[bitos(32)]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct AlphaFunction {
-    #[bits(0..16)]
-    pub refs: [u8; 2],
-    #[bits(16..22)]
-    pub comparison: [AlphaCompare; 2],
-    #[bits(22..24)]
-    pub logic: AlphaLogic,
-}
-
-#[bitos(2)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum DepthTexFormat {
-    #[default]
-    U8       = 0b00,
-    U16      = 0b01,
-    U24      = 0b10,
-    Reserved = 0b11,
-}
-
-#[bitos(2)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum DepthTexOp {
-    #[default]
-    Disabled = 0b00,
-    Add      = 0b01,
-    Replace  = 0b10,
-    Reserved = 0b11,
-}
-
-#[bitos(32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct DepthTexMode {
-    #[bits(0..2)]
-    pub format: DepthTexFormat,
-    #[bits(2..4)]
-    pub op: DepthTexOp,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct DepthTexture {
-    pub mode: DepthTexMode,
-    pub bias: u32,
+    pub color: color::Stage,
+    pub alpha: alpha::Stage,
 }
 
 #[derive(Debug, Default)]
@@ -569,7 +181,7 @@ pub struct Interface {
     pub stage_refs: [StageRefsPair; 8],
     pub stage_consts: [StageConstsPair; 8],
     pub constants: [Rgba16; 4],
-    pub alpha_function: AlphaFunction,
-    pub depth_tex: DepthTexture,
+    pub alpha_func: alpha::Function,
+    pub depth_tex: depth::Texture,
     pub stages_dirty: bool,
 }

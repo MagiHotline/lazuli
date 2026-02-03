@@ -1,7 +1,7 @@
 mod texenv;
 mod texgen;
 
-use lazuli::system::gx::tev::DepthTexOp;
+use lazuli::system::gx::tev;
 use wesl::{VirtualResolver, Wesl};
 use wesl_quote::quote_declaration;
 
@@ -25,8 +25,8 @@ fn base_module(settings: &ShaderSettings) -> wesl::syntax::TranslationUnit {
     };
 
     let has_frag_depth = match settings.texenv.depth_tex.mode.op() {
-        DepthTexOp::Disabled => false,
-        DepthTexOp::Add | DepthTexOp::Replace => true,
+        tev::depth::Op::Disabled => false,
+        tev::depth::Op::Add | tev::depth::Op::Replace => true,
         _ => panic!("reserved depth tex mode"),
     };
 

@@ -1,11 +1,8 @@
 use lazuli::modules::render::TexEnvStage;
-use lazuli::system::gx::tev::{
-    AlphaCompare, AlphaInputSrc, AlphaLogic, ColorChannel, ColorInputSrc, CompareOp, CompareTarget,
-    Constant, DepthTexFormat, DepthTexOp,
-};
+use lazuli::system::gx::tev;
 use wesl_quote::{quote_expression, quote_statement};
 
-use crate::render::pipeline::{AlphaFunctionSettings, TexEnvSettings};
+use crate::render::pipeline::{AlphaFuncSettings, TexEnvSettings};
 
 fn sample_tex(stage: &TexEnvStage) -> wesl::syntax::Expression {
     use wesl::syntax::*;
@@ -43,14 +40,14 @@ fn sample_tex(stage: &TexEnvStage) -> wesl::syntax::Expression {
 
 fn get_color_channel(stage: &TexEnvStage) -> wesl::syntax::Expression {
     use wesl::syntax::*;
-    match stage.refs.color() {
-        ColorChannel::Channel0 => quote_expression! { in.chan0 },
-        ColorChannel::Channel1 => quote_expression! { in.chan1 },
-        ColorChannel::AlphaBump => quote_expression! { vec4f(base::PLACEHOLDER_RGB, 0f) },
-        ColorChannel::AlphaBumpNormalized => {
+    match stage.refs.channel() {
+        tev::Channel::Channel0 => quote_expression! { in.chan0 },
+        tev::Channel::Channel1 => quote_expression! { in.chan1 },
+        tev::Channel::AlphaBump => quote_expression! { vec4f(base::PLACEHOLDER_RGB, 0f) },
+        tev::Channel::AlphaBumpNormalized => {
             quote_expression! { vec4f(base::PLACEHOLDER_RGB, 0f) }
         }
-        ColorChannel::Zero => quote_expression! { vec4f(0f) },
+        tev::Channel::Zero => quote_expression! { vec4f(0f) },
         _ => panic!("reserved color channel"),
     }
 }
@@ -58,89 +55,89 @@ fn get_color_channel(stage: &TexEnvStage) -> wesl::syntax::Expression {
 fn get_color_const(stage: &TexEnvStage) -> wesl::syntax::Expression {
     use wesl::syntax::*;
     match stage.color_const {
-        Constant::One => quote_expression! { vec4f(1f) },
-        Constant::SevenEights => quote_expression! { vec4f(7f / 8f) },
-        Constant::SixEights => quote_expression! { vec4f(6f / 8f) },
-        Constant::FiveEights => quote_expression! { vec4f(5f / 8f) },
-        Constant::FourEights => quote_expression! { vec4f(4f / 8f) },
-        Constant::ThreeEights => quote_expression! { vec4f(3f / 8f) },
-        Constant::TwoEights => quote_expression! { vec4f(2f / 8f) },
-        Constant::OneEight => quote_expression! { vec4f(1f / 8f) },
-        Constant::Const0 => quote_expression! { consts[R0] },
-        Constant::Const1 => quote_expression! { consts[R1] },
-        Constant::Const2 => quote_expression! { consts[R2] },
-        Constant::Const3 => quote_expression! { consts[R3] },
-        Constant::Const0R => quote_expression! { consts[R0].rrrr },
-        Constant::Const1R => quote_expression! { consts[R1].rrrr },
-        Constant::Const2R => quote_expression! { consts[R2].rrrr },
-        Constant::Const3R => quote_expression! { consts[R3].rrrr },
-        Constant::Const0G => quote_expression! { consts[R0].gggg },
-        Constant::Const1G => quote_expression! { consts[R1].gggg },
-        Constant::Const2G => quote_expression! { consts[R2].gggg },
-        Constant::Const3G => quote_expression! { consts[R3].gggg },
-        Constant::Const0B => quote_expression! { consts[R0].bbbb },
-        Constant::Const1B => quote_expression! { consts[R1].bbbb },
-        Constant::Const2B => quote_expression! { consts[R2].bbbb },
-        Constant::Const3B => quote_expression! { consts[R3].bbbb },
-        Constant::Const0A => quote_expression! { consts[R0].aaaa },
-        Constant::Const1A => quote_expression! { consts[R1].aaaa },
-        Constant::Const2A => quote_expression! { consts[R2].aaaa },
-        Constant::Const3A => quote_expression! { consts[R3].aaaa },
+        tev::Constant::One => quote_expression! { vec4f(1f) },
+        tev::Constant::SevenEights => quote_expression! { vec4f(7f / 8f) },
+        tev::Constant::SixEights => quote_expression! { vec4f(6f / 8f) },
+        tev::Constant::FiveEights => quote_expression! { vec4f(5f / 8f) },
+        tev::Constant::FourEights => quote_expression! { vec4f(4f / 8f) },
+        tev::Constant::ThreeEights => quote_expression! { vec4f(3f / 8f) },
+        tev::Constant::TwoEights => quote_expression! { vec4f(2f / 8f) },
+        tev::Constant::OneEight => quote_expression! { vec4f(1f / 8f) },
+        tev::Constant::Const0 => quote_expression! { consts[R0] },
+        tev::Constant::Const1 => quote_expression! { consts[R1] },
+        tev::Constant::Const2 => quote_expression! { consts[R2] },
+        tev::Constant::Const3 => quote_expression! { consts[R3] },
+        tev::Constant::Const0R => quote_expression! { consts[R0].rrrr },
+        tev::Constant::Const1R => quote_expression! { consts[R1].rrrr },
+        tev::Constant::Const2R => quote_expression! { consts[R2].rrrr },
+        tev::Constant::Const3R => quote_expression! { consts[R3].rrrr },
+        tev::Constant::Const0G => quote_expression! { consts[R0].gggg },
+        tev::Constant::Const1G => quote_expression! { consts[R1].gggg },
+        tev::Constant::Const2G => quote_expression! { consts[R2].gggg },
+        tev::Constant::Const3G => quote_expression! { consts[R3].gggg },
+        tev::Constant::Const0B => quote_expression! { consts[R0].bbbb },
+        tev::Constant::Const1B => quote_expression! { consts[R1].bbbb },
+        tev::Constant::Const2B => quote_expression! { consts[R2].bbbb },
+        tev::Constant::Const3B => quote_expression! { consts[R3].bbbb },
+        tev::Constant::Const0A => quote_expression! { consts[R0].aaaa },
+        tev::Constant::Const1A => quote_expression! { consts[R1].aaaa },
+        tev::Constant::Const2A => quote_expression! { consts[R2].aaaa },
+        tev::Constant::Const3A => quote_expression! { consts[R3].aaaa },
         _ => panic!("reserved color constant"),
     }
 }
 
-fn get_color_input(stage: &TexEnvStage, input: ColorInputSrc) -> wesl::syntax::Expression {
+fn get_color_input(stage: &TexEnvStage, input: tev::color::InputSrc) -> wesl::syntax::Expression {
     use wesl::syntax::*;
     match input {
-        ColorInputSrc::R3Color => quote_expression! { regs[R3].rgba },
-        ColorInputSrc::R3Alpha => quote_expression! { regs[R3].aaaa },
-        ColorInputSrc::R0Color => quote_expression! { regs[R0].rgba },
-        ColorInputSrc::R0Alpha => quote_expression! { regs[R0].aaaa },
-        ColorInputSrc::R1Color => quote_expression! { regs[R1].rgba },
-        ColorInputSrc::R1Alpha => quote_expression! { regs[R1].aaaa },
-        ColorInputSrc::R2Color => quote_expression! { regs[R2].rgba },
-        ColorInputSrc::R2Alpha => quote_expression! { regs[R2].aaaa },
-        ColorInputSrc::TexColor => {
+        tev::color::InputSrc::R3Color => quote_expression! { regs[R3].rgba },
+        tev::color::InputSrc::R3Alpha => quote_expression! { regs[R3].aaaa },
+        tev::color::InputSrc::R0Color => quote_expression! { regs[R0].rgba },
+        tev::color::InputSrc::R0Alpha => quote_expression! { regs[R0].aaaa },
+        tev::color::InputSrc::R1Color => quote_expression! { regs[R1].rgba },
+        tev::color::InputSrc::R1Alpha => quote_expression! { regs[R1].aaaa },
+        tev::color::InputSrc::R2Color => quote_expression! { regs[R2].rgba },
+        tev::color::InputSrc::R2Alpha => quote_expression! { regs[R2].aaaa },
+        tev::color::InputSrc::TexColor => {
             let tex = sample_tex(stage);
             quote_expression! { #tex.rgba }
         }
-        ColorInputSrc::TexAlpha => {
+        tev::color::InputSrc::TexAlpha => {
             let tex = sample_tex(stage);
             quote_expression! { #tex.aaaa }
         }
-        ColorInputSrc::ChanColor => {
+        tev::color::InputSrc::ChanColor => {
             let color = get_color_channel(stage);
             quote_expression! { #color.rgba }
         }
-        ColorInputSrc::ChanAlpha => {
+        tev::color::InputSrc::ChanAlpha => {
             let color = get_color_channel(stage);
             quote_expression! { #color.aaaa }
         }
-        ColorInputSrc::One => quote_expression! { vec4f(1f) },
-        ColorInputSrc::Half => quote_expression! { vec4f(0.5f) },
-        ColorInputSrc::Constant => get_color_const(stage),
-        ColorInputSrc::Zero => quote_expression! { vec4f(0f) },
+        tev::color::InputSrc::One => quote_expression! { vec4f(1f) },
+        tev::color::InputSrc::Half => quote_expression! { vec4f(0.5f) },
+        tev::color::InputSrc::Constant => get_color_const(stage),
+        tev::color::InputSrc::Zero => quote_expression! { vec4f(0f) },
     }
 }
 
 fn get_compare_target(
     input_float: wesl::syntax::Expression,
     input_uint: wesl::syntax::Expression,
-    target: CompareTarget,
+    target: tev::CompareTarget,
     alpha: bool,
 ) -> wesl::syntax::Expression {
     use wesl::syntax::*;
 
     match target {
-        CompareTarget::R8 => quote_expression! { (#input_uint).r },
-        CompareTarget::GR16 => {
+        tev::CompareTarget::R8 => quote_expression! { (#input_uint).r },
+        tev::CompareTarget::GR16 => {
             quote_expression! { pack4xU8(vec4u((#input_uint).r, (#input_uint).g, 0, 0)) }
         }
-        CompareTarget::BGR16 => {
+        tev::CompareTarget::BGR16 => {
             quote_expression! { pack4xU8(vec4u((#input_uint).r, (#input_uint).g, (#input_uint).b, 0)) }
         }
-        CompareTarget::Component => {
+        tev::CompareTarget::Component => {
             if alpha {
                 quote_expression! { (#input_float).a }
             } else {
@@ -176,8 +173,8 @@ fn comparative_color_stage(stage: &TexEnvStage) -> wesl::syntax::Statement {
         false,
     );
     let comparison = match op {
-        CompareOp::GreaterThan => quote_expression! { #compare_target_a > #compare_target_b },
-        CompareOp::Equal => quote_expression! { #compare_target_a == #compare_target_b },
+        tev::CompareOp::GreaterThan => quote_expression! { #compare_target_a > #compare_target_b },
+        tev::CompareOp::Equal => quote_expression! { #compare_target_a == #compare_target_b },
     };
 
     let clamped = if clamp {
@@ -256,58 +253,58 @@ pub fn color_stage(stage: &TexEnvStage) -> wesl::syntax::Statement {
 fn get_alpha_const(stage: &TexEnvStage) -> wesl::syntax::Expression {
     use wesl::syntax::*;
     match stage.alpha_const {
-        Constant::One => quote_expression! { 1f },
-        Constant::SevenEights => quote_expression! { (7f / 8f) },
-        Constant::SixEights => quote_expression! { (6f / 8f) },
-        Constant::FiveEights => quote_expression! { (5f / 8f) },
-        Constant::FourEights => quote_expression! { (4f / 8f) },
-        Constant::ThreeEights => quote_expression! { (3f / 8f) },
-        Constant::TwoEights => quote_expression! { (2f / 8f) },
-        Constant::OneEight => quote_expression! { (1f / 8f) },
-        Constant::Const0 => quote_expression! { consts[R0].a },
-        Constant::Const1 => quote_expression! { consts[R1].a },
-        Constant::Const2 => quote_expression! { consts[R2].a },
-        Constant::Const3 => quote_expression! { consts[R3].a },
-        Constant::Const0R => quote_expression! { consts[R0].r },
-        Constant::Const1R => quote_expression! { consts[R1].r },
-        Constant::Const2R => quote_expression! { consts[R2].r },
-        Constant::Const3R => quote_expression! { consts[R3].r },
-        Constant::Const0G => quote_expression! { consts[R0].g },
-        Constant::Const1G => quote_expression! { consts[R1].g },
-        Constant::Const2G => quote_expression! { consts[R2].g },
-        Constant::Const3G => quote_expression! { consts[R3].g },
-        Constant::Const0B => quote_expression! { consts[R0].b },
-        Constant::Const1B => quote_expression! { consts[R1].b },
-        Constant::Const2B => quote_expression! { consts[R2].b },
-        Constant::Const3B => quote_expression! { consts[R3].b },
-        Constant::Const0A => quote_expression! { consts[R0].a },
-        Constant::Const1A => quote_expression! { consts[R1].a },
-        Constant::Const2A => quote_expression! { consts[R2].a },
-        Constant::Const3A => quote_expression! { consts[R3].a },
+        tev::Constant::One => quote_expression! { 1f },
+        tev::Constant::SevenEights => quote_expression! { (7f / 8f) },
+        tev::Constant::SixEights => quote_expression! { (6f / 8f) },
+        tev::Constant::FiveEights => quote_expression! { (5f / 8f) },
+        tev::Constant::FourEights => quote_expression! { (4f / 8f) },
+        tev::Constant::ThreeEights => quote_expression! { (3f / 8f) },
+        tev::Constant::TwoEights => quote_expression! { (2f / 8f) },
+        tev::Constant::OneEight => quote_expression! { (1f / 8f) },
+        tev::Constant::Const0 => quote_expression! { consts[R0].a },
+        tev::Constant::Const1 => quote_expression! { consts[R1].a },
+        tev::Constant::Const2 => quote_expression! { consts[R2].a },
+        tev::Constant::Const3 => quote_expression! { consts[R3].a },
+        tev::Constant::Const0R => quote_expression! { consts[R0].r },
+        tev::Constant::Const1R => quote_expression! { consts[R1].r },
+        tev::Constant::Const2R => quote_expression! { consts[R2].r },
+        tev::Constant::Const3R => quote_expression! { consts[R3].r },
+        tev::Constant::Const0G => quote_expression! { consts[R0].g },
+        tev::Constant::Const1G => quote_expression! { consts[R1].g },
+        tev::Constant::Const2G => quote_expression! { consts[R2].g },
+        tev::Constant::Const3G => quote_expression! { consts[R3].g },
+        tev::Constant::Const0B => quote_expression! { consts[R0].b },
+        tev::Constant::Const1B => quote_expression! { consts[R1].b },
+        tev::Constant::Const2B => quote_expression! { consts[R2].b },
+        tev::Constant::Const3B => quote_expression! { consts[R3].b },
+        tev::Constant::Const0A => quote_expression! { consts[R0].a },
+        tev::Constant::Const1A => quote_expression! { consts[R1].a },
+        tev::Constant::Const2A => quote_expression! { consts[R2].a },
+        tev::Constant::Const3A => quote_expression! { consts[R3].a },
         _ => panic!("reserved alpha constant"),
     }
 }
 
-fn get_alpha_input(stage: &TexEnvStage, input: AlphaInputSrc) -> wesl::syntax::Expression {
+fn get_alpha_input(stage: &TexEnvStage, input: tev::alpha::InputSrc) -> wesl::syntax::Expression {
     use wesl::syntax::*;
     match input {
-        AlphaInputSrc::R3Alpha => quote_expression! { regs[R3].aaaa },
-        AlphaInputSrc::R0Alpha => quote_expression! { regs[R0].aaaa },
-        AlphaInputSrc::R1Alpha => quote_expression! { regs[R1].aaaa },
-        AlphaInputSrc::R2Alpha => quote_expression! { regs[R2].aaaa },
-        AlphaInputSrc::TexAlpha => {
+        tev::alpha::InputSrc::R3Alpha => quote_expression! { regs[R3].aaaa },
+        tev::alpha::InputSrc::R0Alpha => quote_expression! { regs[R0].aaaa },
+        tev::alpha::InputSrc::R1Alpha => quote_expression! { regs[R1].aaaa },
+        tev::alpha::InputSrc::R2Alpha => quote_expression! { regs[R2].aaaa },
+        tev::alpha::InputSrc::TexAlpha => {
             let tex = sample_tex(stage);
             quote_expression! { #tex.aaaa }
         }
-        AlphaInputSrc::ChanAlpha => {
+        tev::alpha::InputSrc::ChanAlpha => {
             let color = get_color_channel(stage);
             quote_expression! { #color.aaaa }
         }
-        AlphaInputSrc::Constant => {
+        tev::alpha::InputSrc::Constant => {
             let constant = get_alpha_const(stage);
             quote_expression! { vec4f(#constant) }
         }
-        AlphaInputSrc::Zero => quote_expression! { vec4f(0f) },
+        tev::alpha::InputSrc::Zero => quote_expression! { vec4f(0f) },
     }
 }
 
@@ -337,8 +334,8 @@ fn comparative_alpha_stage(stage: &TexEnvStage) -> wesl::syntax::Statement {
         true,
     );
     let comparison = match op {
-        CompareOp::GreaterThan => quote_expression! { #compare_target_a > #compare_target_b },
-        CompareOp::Equal => quote_expression! { #compare_target_a == #compare_target_b },
+        tev::CompareOp::GreaterThan => quote_expression! { #compare_target_a > #compare_target_b },
+        tev::CompareOp::Equal => quote_expression! { #compare_target_a == #compare_target_b },
     };
 
     let clamped = if clamp {
@@ -414,48 +411,51 @@ pub fn alpha_stage(stage: &TexEnvStage) -> wesl::syntax::Statement {
     }
 }
 
-fn get_alpha_comparison_helper(compare: AlphaCompare, idx: usize) -> wesl::syntax::Expression {
+fn get_alpha_comparison_helper(
+    compare: tev::alpha::Compare,
+    idx: usize,
+) -> wesl::syntax::Expression {
     use wesl::syntax::*;
 
     let alpha_ref = wesl::syntax::Ident::new(format!("alpha_ref{idx}"));
     match compare {
-        AlphaCompare::Never => quote_expression! { false },
-        AlphaCompare::Less => quote_expression! { alpha < #alpha_ref },
-        AlphaCompare::Equal => quote_expression! { alpha == #alpha_ref },
-        AlphaCompare::LessOrEqual => quote_expression! { alpha <= #alpha_ref },
-        AlphaCompare::Greater => quote_expression! { alpha > #alpha_ref },
-        AlphaCompare::NotEqual => quote_expression! { alpha != #alpha_ref },
-        AlphaCompare::GreaterOrEqual => quote_expression! { alpha >= #alpha_ref },
-        AlphaCompare::Always => quote_expression! { true },
+        tev::alpha::Compare::Never => quote_expression! { false },
+        tev::alpha::Compare::Less => quote_expression! { alpha < #alpha_ref },
+        tev::alpha::Compare::Equal => quote_expression! { alpha == #alpha_ref },
+        tev::alpha::Compare::LessOrEqual => quote_expression! { alpha <= #alpha_ref },
+        tev::alpha::Compare::Greater => quote_expression! { alpha > #alpha_ref },
+        tev::alpha::Compare::NotEqual => quote_expression! { alpha != #alpha_ref },
+        tev::alpha::Compare::GreaterOrEqual => quote_expression! { alpha >= #alpha_ref },
+        tev::alpha::Compare::Always => quote_expression! { true },
     }
 }
 
-pub fn get_alpha_comparison(settings: &AlphaFunctionSettings) -> wesl::syntax::Expression {
+pub fn get_alpha_comparison(settings: &AlphaFuncSettings) -> wesl::syntax::Expression {
     use wesl::syntax::*;
     let a = get_alpha_comparison_helper(settings.comparison[0], 0);
     let b = get_alpha_comparison_helper(settings.comparison[1], 1);
 
     match settings.logic {
-        AlphaLogic::And => quote_expression! { (#a) && (#b) },
-        AlphaLogic::Or => quote_expression! { (#a) || (#b) },
-        AlphaLogic::Xor => quote_expression! { (#a) != (#b) },
-        AlphaLogic::Xnor => quote_expression! { (#a) == (#b) },
+        tev::alpha::CompareLogic::And => quote_expression! { (#a) && (#b) },
+        tev::alpha::CompareLogic::Or => quote_expression! { (#a) || (#b) },
+        tev::alpha::CompareLogic::Xor => quote_expression! { (#a) != (#b) },
+        tev::alpha::CompareLogic::Xnor => quote_expression! { (#a) == (#b) },
     }
 }
 
 pub fn get_depth_texture(settings: &TexEnvSettings) -> wesl::syntax::Statement {
     use wesl::syntax::*;
 
-    if settings.depth_tex.mode.op() == DepthTexOp::Disabled {
+    if settings.depth_tex.mode.op() == tev::depth::Op::Disabled {
         return Statement::Void;
     }
 
     let bias = settings.depth_tex.bias;
     let sampled = self::sample_tex(settings.stages.last().unwrap());
     let (depth_mid, depth_hi) = match settings.depth_tex.mode.format() {
-        DepthTexFormat::U8 => (quote_expression!(0), quote_expression!(0)),
-        DepthTexFormat::U16 => (quote_expression!(depth_tex_sample.y), quote_expression!(0)),
-        DepthTexFormat::U24 => (
+        tev::depth::Format::U8 => (quote_expression!(0), quote_expression!(0)),
+        tev::depth::Format::U16 => (quote_expression!(depth_tex_sample.y), quote_expression!(0)),
+        tev::depth::Format::U24 => (
             quote_expression!(depth_tex_sample.y),
             quote_expression!(depth_tex_sample.z),
         ),

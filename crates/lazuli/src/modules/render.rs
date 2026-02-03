@@ -9,10 +9,8 @@ use static_assertions::const_assert;
 use crate::system::gx::pix::{
     BlendMode, BufferFormat, ConstantAlpha, CopyDims, CopySrc, DepthMode, Scissor,
 };
-use crate::system::gx::tev::{AlphaFunction, Constant, DepthTexture, StageOps, StageRefs};
-use crate::system::gx::tex::{ClutFormat, Format, LodLimits, MipmapData, SamplerMode};
 use crate::system::gx::xform::{BaseTexGen, ChannelControl, Light, ProjectionMat};
-use crate::system::gx::{CullingMode, EFB_HEIGHT, EFB_WIDTH, Topology, VertexStream};
+use crate::system::gx::{CullingMode, EFB_HEIGHT, EFB_WIDTH, Topology, VertexStream, tev, tex};
 
 #[rustfmt::skip]
 pub use oneshot;
@@ -56,17 +54,17 @@ impl Default for Viewport {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct TexEnvStage {
-    pub ops: StageOps,
-    pub refs: StageRefs,
-    pub color_const: Constant,
-    pub alpha_const: Constant,
+    pub ops: tev::StageOps,
+    pub refs: tev::StageRefs,
+    pub color_const: tev::Constant,
+    pub alpha_const: tev::Constant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct TexEnvConfig {
     pub stages: Vec<TexEnvStage>,
     pub constants: [Rgba16; 4],
-    pub depth_tex: DepthTexture,
+    pub depth_tex: tev::depth::Texture,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -103,14 +101,14 @@ pub struct TexGenConfig {
 pub struct Texture {
     pub width: u32,
     pub height: u32,
-    pub format: Format,
-    pub data: MipmapData,
+    pub format: tex::Format,
+    pub data: tex::MipmapData,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Sampler {
-    pub mode: SamplerMode,
-    pub lods: LodLimits,
+    pub mode: tex::SamplerMode,
+    pub lods: tex::LodLimits,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -155,7 +153,7 @@ pub enum Action {
     SetDepthMode(DepthMode),
     SetBlendMode(BlendMode),
     SetConstantAlpha(ConstantAlpha),
-    SetAlphaFunction(AlphaFunction),
+    SetAlphaFunction(tev::alpha::Function),
     SetProjectionMatrix(ProjectionMat),
     SetTexEnvConfig(TexEnvConfig),
     SetTexGenConfig(TexGenConfig),
@@ -178,7 +176,7 @@ pub enum Action {
         sampler: Sampler,
         scaling: Scaling,
         clut_addr: ClutAddress,
-        clut_fmt: ClutFormat,
+        clut_fmt: tex::ClutFormat,
     },
     Draw(Topology, VertexStream),
     ColorCopy {
