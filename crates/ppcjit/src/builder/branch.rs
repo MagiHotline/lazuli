@@ -215,73 +215,68 @@ impl BlockBuilder<'_> {
 
         if options.is_unconditional() {
             self.jump(relative, ins.field_lk(), block_link, target);
-            UNCONDITIONAL_BRANCH_INFO
-        } else {
-            let cond_bit = 31 - ins.field_bi();
-            let current_pc = self.get(Reg::PC);
-
-            let mut branch = self.ir_value(true);
-            if !options.ignore_cr() {
-                let cr = self.get(Reg::CR);
-
-                let bit = self.get_bit(cr, cond_bit);
-                let cond_ok = if options.desired_cr() {
-                    bit
-                } else {
-                    self.bd.ins().bxor_imm(bit, 1)
-                };
-
-                branch = self.bd.ins().band(branch, cond_ok);
-            }
-
-            if !options.ignore_ctr() {
-                let ctr = self.get(SPR::CTR);
-                let ctr = self.bd.ins().iadd_imm(ctr, -1);
-                self.set(SPR::CTR, ctr);
-
-                let ctr_ok = match options.ctr_cond() {
-                    CtrCond::NotEqZero => {
-                        self.bd
-                            .ins()
-                            .icmp_imm(ir::condcodes::IntCC::NotEqual, ctr, 0)
-                    }
-                    CtrCond::EqZero => self.bd.ins().icmp_imm(ir::condcodes::IntCC::Equal, ctr, 0),
-                };
-
-                branch = self.bd.ins().band(branch, ctr_ok);
-            }
-
-            let exit_block = self.bd.create_block();
-            let continue_block = self.bd.create_block();
-
-            if !(options.ignore_ctr() && options.ignore_cr()) {
-                self.bd.set_cold_block(if options.likely() {
-                    continue_block
-                } else {
-                    exit_block
-                });
-            }
-
-            self.bd
-                .ins()
-                .brif(branch, exit_block, &[], continue_block, &[]);
-
-            self.bd.seal_block(exit_block);
-            self.bd.seal_block(continue_block);
-
-            // => exit (take branch)
-            self.switch_to_bb(exit_block);
-            let target = self.ir_value(target);
-            self.jump(relative, ins.field_lk(), block_link, target);
-
-            // => continue (do not take branch)
-            self.switch_to_bb(continue_block);
-            self.current_bb = continue_block;
-
-            self.set(Reg::PC, current_pc);
-
-            CONDITIONAL_BRANCH_INFO
+            return UNCONDITIONAL_BRANCH_INFO;
         }
+
+        let cond_bit = 31 - ins.field_bi();
+        let current_pc = self.get(Reg::PC);
+
+        let mut branch = self.ir_value(true);
+        if !options.ignore_cr() {
+            let cr = self.get(Reg::CR);
+
+            let bit = self.get_bit(cr, cond_bit);
+            let condition = if options.desired_cr() {
+                bit
+            } else {
+                self.bd.ins().bnot(bit)
+            };
+
+            branch = self.bd.ins().band(branch, condition);
+        }
+
+        if !options.ignore_ctr() {
+            let ctr = self.get(SPR::CTR);
+            let ctr = self.bd.ins().iadd_imm(ctr, -1);
+            self.set(SPR::CTR, ctr);
+
+            let condition = match options.ctr_cond() {
+                CtrCond::NotEqZero => ir::condcodes::IntCC::NotEqual,
+                CtrCond::EqZero => ir::condcodes::IntCC::Equal,
+            };
+
+            let condition = self.bd.ins().icmp_imm(condition, ctr, 0);
+            branch = self.bd.ins().band(branch, condition);
+        }
+
+        let exit_block = self.bd.create_block();
+        let continue_block = self.bd.create_block();
+
+        self.bd.set_cold_block(if options.likely() {
+            continue_block
+        } else {
+            exit_block
+        });
+
+        self.bd
+            .ins()
+            .brif(branch, exit_block, &[], continue_block, &[]);
+
+        self.bd.seal_block(exit_block);
+        self.bd.seal_block(continue_block);
+
+        // => exit (take branch)
+        self.switch_to_bb(exit_block);
+        let target = self.ir_value(target);
+        self.jump(relative, ins.field_lk(), block_link, target);
+
+        // => continue (do not take branch)
+        self.switch_to_bb(continue_block);
+        self.current_bb = continue_block;
+
+        self.set(Reg::PC, current_pc);
+
+        CONDITIONAL_BRANCH_INFO
     }
 
     pub fn bc(&mut self, ins: Ins) -> InstructionInfo {
