@@ -13,11 +13,12 @@ request increases compatibility with a specific game, please mention it.
 
 # Usage of Artificial Intelligence (AI)
 
-**Do not** submit largely AI generated content (code, docs, whatever). It's fine to use AI as an _assistant_,
-but **please** do not open pull requests with a high percentage of AI generated content.
+**Do not** submit AI generated content (code, docs, whatever). It's fine to use AI as an _assistant_,
+but **please** do not open pull requests with AI generated content.
 
 As a rule of thumb, if you wrote the code and only used AI as a sort of turbo-autocomplete or as a research
-tool, that's _probably_ fine. In general, **aim for minimum AI usage**.
+tool, that's _probably_ fine. In general, **aim for minimum AI usage**, and **always** make it clear
+AI was used if that's the case (and how exactly).
 
 # Licensing
 
