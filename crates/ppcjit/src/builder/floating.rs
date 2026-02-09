@@ -177,11 +177,11 @@ impl BlockBuilder<'_> {
         let fpr_c = self.get(ins.fpr_c());
 
         // ps0 = a0 + b1
-        // ps1 = c0
+        // ps1 = c1
 
-        let ac = self.ps_merge(fpr_a, fpr_c, false, false);
+        let ac = self.ps_merge(fpr_a, fpr_c, false, true);
         let b1 = self.bd.ins().extractlane(fpr_b, 1);
-        let b1 = self.bd.ins().splat(ir::types::F64X2, b1);
+        let b1 = self.bd.ins().scalar_to_vector(ir::types::F64X2, b1);
 
         let value = self.bd.ins().fadd(ac, b1);
         self.set(ins.fpr_d(), value);

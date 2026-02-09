@@ -157,8 +157,8 @@ impl BlockBuilder<'_> {
         );
 
         const SHUFFLE_CONST: [u8; 16] = [
-            0, 1, 2, 3, 4, 5, 6, 7, // ps1
             0, 1, 2, 3, 4, 5, 6, 7, // ps0
+            0, 1, 2, 3, 4, 5, 6, 7, // ps1
         ];
 
         let shuffle_const = self
@@ -243,7 +243,6 @@ impl BlockBuilder<'_> {
             .push(ir::ConstantData::from(mask.as_slice()));
 
         let value = self.bd.ins().shuffle(bytes_a, bytes_b, mask);
-
         self.bd.ins().bitcast(
             ir::types::F64X2,
             ir::MemFlags::new().with_endianness(ir::Endianness::Little),
