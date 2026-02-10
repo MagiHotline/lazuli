@@ -128,8 +128,8 @@ impl Renderer {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> (Self, Arc<Shared>) {
         let framebuffer = Framebuffer::new(&device);
         let allocators = Allocators {
-            index: Allocator::new(wgpu::BufferUsages::INDEX),
-            storage: Allocator::new(wgpu::BufferUsages::STORAGE),
+            index: Allocator::new(&device, wgpu::BufferUsages::INDEX),
+            storage: Allocator::new(&device, wgpu::BufferUsages::STORAGE),
         };
 
         let pipeline_cache = pipeline::Cache::new(&device);

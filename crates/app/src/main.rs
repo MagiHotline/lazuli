@@ -417,11 +417,20 @@ fn main() -> Result<()> {
     let _tracing_guard = setup_tracing();
     let cfg = cli::Config::parse();
 
-    let device_descriptor = Arc::new(|_: &wgpu::Adapter| {
+    let device_descriptor = Arc::new(|adapter: &wgpu::Adapter| {
+        let info = adapter.get_info();
+
         let mut required_features = wgpu::Features::empty();
         required_features |= wgpu::Features::DUAL_SOURCE_BLENDING;
         required_features |= wgpu::Features::FLOAT32_FILTERABLE;
         required_features |= wgpu::Features::PUSH_CONSTANTS;
+
+        if matches!(
+            info.device_type,
+            wgpu::DeviceType::IntegratedGpu | wgpu::DeviceType::Cpu
+        ) {
+            required_features |= wgpu::Features::MAPPABLE_PRIMARY_BUFFERS
+        }
 
         let mut required_limits = wgpu::Limits::defaults();
         required_limits.max_texture_dimension_2d = 8192;
