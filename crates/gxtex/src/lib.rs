@@ -604,6 +604,7 @@ impl Format for Cmpr {
                     palette[3] = palette[0].lerp(palette[1], 2.0 / 3.0);
                 } else {
                     palette[2] = palette[0].lerp(palette[1], 0.5);
+                    palette[3] = Pixel { a: 0, ..palette[2] };
                 }
 
                 // read pixels (last 4 bytes)
