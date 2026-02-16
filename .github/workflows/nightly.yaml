@@ -65,14 +65,14 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: libasound2-dev libudev-dev
+      - name: Install rust toolchain
+        run: rustup toolchain install
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.7.7
         with:
           cache-on-failure: true
       - name: Setup mold
         uses: rui314/setup-mold@v1
-      - name: Install nightly rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
       - name: Install just
         uses: taiki-e/install-action@v2
         with:
@@ -100,12 +100,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Install rust toolchain
+        run: rustup toolchain install
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.7.7
         with:
           cache-on-failure: true
-      - name: Install nightly rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
       - name: Install just
         uses: taiki-e/install-action@v2
         with:
