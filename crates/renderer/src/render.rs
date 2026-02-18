@@ -4,34 +4,32 @@ mod pipeline;
 mod sampler;
 mod texture;
 
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use glam::{Mat4, Vec2};
 use lazuli::modules::render::oneshot::Sender;
 use lazuli::modules::render::{
-    Action, ClutData, ClutId, ClutRef, ColorData, CopyArgs, DepthData, Sampler, Scaling,
-    TexEnvConfig, TexGenConfig, Texture, TextureId, Viewport, XfbPart, oneshot,
+    Action, ClutData, ClutId, ClutRef, CopyArgs, Sampler, Scaling, TexEnvConfig, TexGenConfig,
+    Texels, Texture, TextureId, Viewport, XfbPart, oneshot,
 };
-use lazuli::system::gx::color::{Rgba, Rgba8};
+use lazuli::system::gx::color::Rgba;
 use lazuli::system::gx::pix::{
-    self, BlendMode, CompareMode, ConstantAlpha, DepthMode, DstBlendFactor, Scissor, SrcBlendFactor,
+    self, BlendMode, ColorCopyFormat, CompareMode, ConstantAlpha, DepthCopyFormat, DepthMode,
+    DstBlendFactor, Scissor, SrcBlendFactor,
 };
 use lazuli::system::gx::xform::{ChannelControl, Light};
 use lazuli::system::gx::{
-    CullingMode, DEPTH_24_BIT_MAX, EFB_HEIGHT, EFB_WIDTH, MatrixId, Topology, Vertex, VertexStream,
-    tev,
+    CullingMode, EFB_HEIGHT, EFB_WIDTH, MatrixId, Topology, Vertex, VertexStream, tev,
 };
 use lazuli::system::vi::Dimensions;
-use rustc_hash::{FxBuildHasher, FxHashMap};
+use rustc_hash::FxBuildHasher;
 use schnellru::{ByLength, LruMap};
 use seq_macro::seq;
 use zerocopy::{FromBytes, IntoBytes};
 
 use crate::alloc::Allocator;
-use crate::blit::{ColorBlitter, DepthBlitter};
+use crate::blit::{ColorBlitter, Converter, DepthBlitter};
 use crate::clear::Cleaner;
 use crate::render::pipeline::TexGenStageSettings;
 use crate::render::texture::TextureRef;
@@ -84,11 +82,10 @@ pub struct Renderer {
     allocators: Allocators,
     tex_slots: [TexSlotSettings; 8],
     cleaner: Cleaner,
+    converter: Converter,
     color_blitter: ColorBlitter,
     depth_blitter: DepthBlitter,
-    color_copy_buffer: wgpu::Buffer,
-    depth_copy_buffer: wgpu::Buffer,
-    depth_copy_texture_pool: FxHashMap<wgpu::Extent3d, wgpu::TextureView>,
+    data_read_buffer: wgpu::Buffer,
 
     // caches
     pipeline_cache: pipeline::Cache,
@@ -149,18 +146,12 @@ impl Renderer {
         });
 
         let cleaner = Cleaner::new(&device);
+        let converter = Converter::new(&device);
         let color_blitter = ColorBlitter::new(&device);
         let depth_blitter = DepthBlitter::new(&device);
 
-        let color_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("color copy buffer"),
-            size: EFB_WIDTH * EFB_HEIGHT * 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        let depth_copy_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("depth copy buffer"),
+        let data_read_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("data read buffer"),
             size: EFB_WIDTH * EFB_HEIGHT * 4,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
@@ -208,11 +199,10 @@ impl Renderer {
             allocators,
             tex_slots: Default::default(),
             cleaner,
+            converter,
             color_blitter,
             depth_blitter,
-            color_copy_buffer,
-            depth_copy_buffer,
-            depth_copy_texture_pool: HashMap::default(),
+            data_read_buffer,
 
             pipeline_cache,
             texture_cache,
@@ -277,8 +267,18 @@ impl Renderer {
             Action::SetColorChannel(idx, control) => self.set_color_channel(idx, control),
             Action::SetAlphaChannel(idx, control) => self.set_alpha_channel(idx, control),
             Action::SetLight(idx, light) => self.set_light(idx, light),
-            Action::CopyColor { args, response, id } => self.copy_color(args, response, id),
-            Action::CopyDepth { args, response, id } => self.copy_depth(args, response, id),
+            Action::CopyColor {
+                args,
+                format,
+                response,
+                id,
+            } => self.copy_color(args, format, response, id),
+            Action::CopyDepth {
+                args,
+                format,
+                response,
+                id,
+            } => self.copy_depth(args, format, response, id),
             Action::CopyXfb { args, id } => self.copy_xfb(args, id),
             Action::PresentXfb(parts) => self.present_xfb(parts),
         }
@@ -583,10 +583,7 @@ impl Renderer {
     }
 
     fn load_texture(&mut self, id: TextureId, texture: Texture) {
-        if self.texture_cache.update_raw(id, texture) {
-            // HACK: avoid keeping old textures alive with a dependent bind group
-            self.textures_group_cache.clear();
-        }
+        self.texture_cache.update_raw(id, texture);
     }
 
     fn load_clut(&mut self, id: ClutId, clut: ClutData) {
@@ -918,6 +915,7 @@ impl Renderer {
 
         self.allocators.index.free();
         self.allocators.storage.free();
+        self.textures_group_cache.clear();
 
         self.shared.rendered_anything.store(true, Ordering::Relaxed);
     }
@@ -932,11 +930,9 @@ impl Renderer {
         encoder: &mut wgpu::CommandEncoder,
     ) -> wgpu::TextureView {
         let divisor = if half { 2 } else { 1 };
-        let target_width = width as u32 / divisor;
-        let target_height = height as u32 / divisor;
         let size = wgpu::Extent3d {
-            width: target_width,
-            height: target_height,
+            width: width as u32 / divisor,
+            height: height as u32 / divisor,
             depth_or_array_layers: 1,
         };
 
@@ -975,11 +971,110 @@ impl Renderer {
         view
     }
 
-    fn get_color_data(
+    fn copy_depth_to_tex(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        half: bool,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::TextureView {
+        let divisor = if half { 2 } else { 1 };
+        let size = wgpu::Extent3d {
+            width: width as u32 / divisor,
+            height: height as u32 / divisor,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            dimension: wgpu::TextureDimension::D2,
+            size,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+            mip_level_count: 1,
+            sample_count: 1,
+        });
+        let view = texture.create_view(&Default::default());
+
+        let depth = self.embedded_fb.depth();
+        self.depth_blitter.blit_to_texture(
+            &self.device,
+            depth,
+            wgpu::Origin3d {
+                x: x as u32,
+                y: y as u32,
+                z: 0,
+            },
+            wgpu::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth_or_array_layers: 1,
+            },
+            &view,
+            encoder,
+        );
+
+        view
+    }
+
+    fn encode_color(
+        &mut self,
+        color: &wgpu::TextureView,
+        format: ColorCopyFormat,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::TextureView {
+        let output = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            dimension: wgpu::TextureDimension::D2,
+            size: color.texture().size(),
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+            mip_level_count: 1,
+            sample_count: 1,
+        });
+
+        let view = output.create_view(&Default::default());
+        self.converter
+            .convert_color(&self.device, format, color, &view, encoder);
+
+        view
+    }
+
+    fn encode_depth(
+        &mut self,
+        depth: &wgpu::TextureView,
+        format: DepthCopyFormat,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::TextureView {
+        let output = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            dimension: wgpu::TextureDimension::D2,
+            size: depth.texture().size(),
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+            mip_level_count: 1,
+            sample_count: 1,
+        });
+
+        let view = output.create_view(&Default::default());
+        self.converter
+            .convert_depth(&self.device, format, depth, &view, encoder);
+
+        view
+    }
+
+    fn get_texture_data(
         &mut self,
         view: &wgpu::TextureView,
         mut encoder: wgpu::CommandEncoder,
-    ) -> Vec<Rgba8> {
+    ) -> Vec<u32> {
         let size = view.texture().size();
         let row_size = size.width * 4;
         let row_stride = row_size.next_multiple_of(256);
@@ -992,7 +1087,7 @@ impl Renderer {
                 aspect: wgpu::TextureAspect::default(),
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: &self.color_copy_buffer,
+                buffer: &self.data_read_buffer,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(row_stride),
@@ -1003,7 +1098,7 @@ impl Renderer {
         );
 
         let (sender, receiver) = oneshot::channel();
-        encoder.map_buffer_on_submit(&self.color_copy_buffer, wgpu::MapMode::Read, .., |r| {
+        encoder.map_buffer_on_submit(&self.data_read_buffer, wgpu::MapMode::Read, .., |r| {
             sender.send(r).unwrap()
         });
 
@@ -1019,139 +1114,24 @@ impl Renderer {
         let result = receiver.recv().unwrap();
         result.unwrap();
 
-        let mapped = self.color_copy_buffer.get_mapped_range(..);
+        let mapped = self.data_read_buffer.get_mapped_range(..);
         let data = &*mapped;
 
-        let mut pixels = Vec::with_capacity(size.width as usize * size.height as usize);
+        let mut texels = Vec::with_capacity(size.width as usize * size.height as usize);
         for row in 0..size.height as usize {
             let row_data = &data[row * row_stride as usize..][..row_size as usize];
-            pixels.extend(
+            texels.extend(
                 row_data
                     .chunks_exact(4)
-                    .map(Rgba8::read_from_bytes)
+                    .map(u32::read_from_bytes)
                     .map(Result::unwrap),
             );
         }
 
         std::mem::drop(mapped);
-        self.color_copy_buffer.unmap();
+        self.data_read_buffer.unmap();
 
-        pixels
-    }
-
-    fn get_depth_data(&mut self, x: u16, y: u16, width: u16, height: u16, half: bool) -> Vec<u32> {
-        let depth = self.embedded_fb.depth();
-
-        let divisor = if half { 2 } else { 1 };
-        let target_width = width as u32 / divisor;
-        let target_height = height as u32 / divisor;
-        let size = wgpu::Extent3d {
-            width: target_width,
-            height: target_height,
-            depth_or_array_layers: 1,
-        };
-
-        let row_size = target_width * 4;
-        let row_stride = row_size.next_multiple_of(256);
-
-        let copy_target = match self.depth_copy_texture_pool.entry(size) {
-            Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(v) => {
-                let tex = self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("depth copy texture"),
-                    dimension: wgpu::TextureDimension::D2,
-                    size,
-                    format: wgpu::TextureFormat::R32Float,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
-                    mip_level_count: 1,
-                    sample_count: 1,
-                });
-
-                v.insert(tex.create_view(&wgpu::TextureViewDescriptor::default()))
-            }
-        };
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-        self.depth_blitter.blit_to_texture(
-            &self.device,
-            depth,
-            wgpu::Origin3d::ZERO,
-            wgpu::Extent3d {
-                width: width as u32,
-                height: height as u32,
-                depth_or_array_layers: 1,
-            },
-            copy_target,
-            &mut encoder,
-        );
-
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: copy_target.texture(),
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: x as u32,
-                    y: y as u32,
-                    z: 0,
-                },
-                aspect: wgpu::TextureAspect::default(),
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.depth_copy_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(row_stride),
-                    rows_per_image: None,
-                },
-            },
-            wgpu::Extent3d {
-                width: target_width,
-                height: target_height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        let (sender, receiver) = oneshot::channel();
-        encoder.map_buffer_on_submit(&self.depth_copy_buffer, wgpu::MapMode::Read, .., |r| {
-            sender.send(r).unwrap()
-        });
-
-        let cmd = encoder.finish();
-        let submission = self.queue.submit([cmd]);
-        self.device
-            .poll(wgpu::wgt::PollType::Wait {
-                submission_index: Some(submission),
-                timeout: None,
-            })
-            .unwrap();
-
-        let result = receiver.recv().unwrap();
-        result.unwrap();
-
-        let mapped = self.depth_copy_buffer.get_mapped_range(..);
-        let data = &*mapped;
-
-        let mut depth = Vec::with_capacity(target_width as usize * target_height as usize);
-        for row in 0..target_height as usize {
-            let row_data = &data[row * row_stride as usize..][..row_size as usize];
-            depth.extend(row_data.chunks_exact(4).map(|c| {
-                let value = f32::read_from_bytes(c).unwrap();
-
-                assert!(value >= 0.0f32);
-                assert!(value <= 1.0f32);
-
-                (value * DEPTH_24_BIT_MAX as f32) as u32
-            }));
-        }
-
-        std::mem::drop(mapped);
-        self.depth_copy_buffer.unmap();
-
-        depth
+        texels
     }
 
     fn clear(&mut self, x: u32, y: u32, width: u32, height: u32) {
@@ -1173,7 +1153,13 @@ impl Renderer {
             .clear_target(color, depth, &mut self.current_pass);
     }
 
-    fn copy_color(&mut self, args: CopyArgs, response: Option<Sender<ColorData>>, id: TextureId) {
+    fn copy_color(
+        &mut self,
+        args: CopyArgs,
+        format: ColorCopyFormat,
+        response: Option<Sender<Texels>>,
+        id: TextureId,
+    ) {
         let CopyArgs {
             src,
             dims,
@@ -1196,7 +1182,7 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        let texture = self.copy_color_to_tex(
+        let raw_texture = self.copy_color_to_tex(
             src.x().value(),
             src.y().value(),
             dims.width(),
@@ -1205,16 +1191,16 @@ impl Renderer {
             &mut encoder,
         );
 
+        let encoded_texture = self.encode_color(&raw_texture, format, &mut encoder);
         if let Some(response) = response {
-            let data = self.get_color_data(&texture, encoder);
+            let data = self.get_texture_data(&raw_texture, encoder);
             response.send(data).unwrap();
         } else {
             let cmd = encoder.finish();
             self.queue.submit([cmd]);
         }
 
-        self.texture_cache.insert_direct(id, texture);
-
+        self.texture_cache.insert_direct(id, encoded_texture);
         if clear {
             self.clear(
                 src.x().value() as u32,
@@ -1225,7 +1211,13 @@ impl Renderer {
         }
     }
 
-    fn copy_depth(&mut self, args: CopyArgs, response: Option<Sender<DepthData>>, _: TextureId) {
+    fn copy_depth(
+        &mut self,
+        args: CopyArgs,
+        format: DepthCopyFormat,
+        response: Option<Sender<Texels>>,
+        id: TextureId,
+    ) {
         let CopyArgs {
             src,
             dims,
@@ -1243,17 +1235,30 @@ impl Renderer {
         ));
 
         self.submit();
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+        let raw_texture = self.copy_depth_to_tex(
+            src.x().value(),
+            src.y().value(),
+            dims.width(),
+            dims.height(),
+            half,
+            &mut encoder,
+        );
+
+        let encoded_texture = self.encode_depth(&raw_texture, format, &mut encoder);
         if let Some(response) = response {
-            let data = self.get_depth_data(
-                src.x().value(),
-                src.y().value(),
-                dims.width(),
-                dims.height(),
-                half,
-            );
+            let data = self.get_texture_data(&raw_texture, encoder);
             response.send(data).unwrap();
+        } else {
+            let cmd = encoder.finish();
+            self.queue.submit([cmd]);
         }
 
+        self.texture_cache.insert_direct(id, encoded_texture);
         if clear {
             self.clear(
                 src.x().value() as u32,
