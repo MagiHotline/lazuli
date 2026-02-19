@@ -24,11 +24,6 @@ use rustc_hash::FxHashMap;
 use crate::builder::ParserBuilder;
 use crate::parser::{Config, Meta};
 
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    unsafe fn sys_icache_invalidate(start: *mut std::ffi::c_void, len: usize);
-}
-
 #[repr(C)]
 struct UnpackedDefaultMatrices {
     pub view: u8,
@@ -134,22 +129,6 @@ impl Jit {
 
         let compiled = code_ctx.take_compiled_code().unwrap();
         let alloc = self.allocator.allocate(64, compiled.code_buffer());
-
-        #[cfg(target_os = "macos")]
-        unsafe {
-            let code_slice: &[u8] = alloc.as_ptr().as_ref();
-
-            /* (took from man sys_icache_invalidate)
-             sys_icache_invalidate() prepares memory for execution, typically by
-             invalidating the instruction cache for the indicated range.  This should
-             be called after writing machine instructions to memory, and before exe-cuting executing
-             cuting them.  On IA32 processors this function is a NOP, because their
-             instruction caches are coherent.
-            */
-
-            sys_icache_invalidate(code_slice.as_ptr() as *mut std::ffi::c_void, code_slice.len());
-        }
-
         let disasm = compiled.vcode;
         let meta = Meta { clir, disasm };
 

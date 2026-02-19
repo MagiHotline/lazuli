@@ -6,12 +6,6 @@ use jitalloc::{Allocation, ReadExec};
 use crate::Sequence;
 use crate::hooks::Context;
 
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    unsafe fn pthread_jit_write_protect_np(enabled: i32);
-    unsafe fn sys_icache_invalidate(start: *mut std::ffi::c_void, len: usize);
-}
-
 #[derive(Debug)]
 #[repr(C)]
 pub struct LinkData {
@@ -88,13 +82,6 @@ pub struct BlockFn(NonNull<c_void>);
 
 impl Block {
     pub(crate) fn new(code: Allocation<ReadExec>, meta: Meta) -> Self {
-
-        #[cfg(target_os = "macos")]
-        unsafe {
-            let slice: &[u8] = code.as_ptr().as_ref();
-            sys_icache_invalidate(slice.as_ptr() as *mut std::ffi::c_void, slice.len());
-        }
-
         Self { code, meta }
     }
 
@@ -126,15 +113,6 @@ impl Trampoline {
             instructions: 0,
             cycles: 0,
         };
-
-        #[cfg(target_os = "macos")]
-        unsafe {
-            /*
-             * The pthread_jit_write_protect_np() function sets whether
-             * MAP_JIT region write protection is enabled for this thread.
-             */
-            pthread_jit_write_protect_np(1);
-        }
 
         let trampoline: TrampolineFn = unsafe { std::mem::transmute(self.0.as_ptr().cast::<u8>()) };
         trampoline(&raw mut info, ctx, block);
