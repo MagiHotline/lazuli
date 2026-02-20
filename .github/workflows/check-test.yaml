@@ -1,0 +1,44 @@
+name: Check and test
+
+on:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Z threads=4 -Z share-generics=y
+
+jobs:
+  check-and-test:
+    name: Run cargo check and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Update apt
+        run: sudo apt-get update
+      - name: Install audio deps
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libasound2-dev libudev-dev
+      - name: Install rust toolchain
+        run: rustup toolchain install
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2.7.7
+        with:
+          cache-on-failure: true
+      - name: Setup mold
+        uses: rui314/setup-mold@v1
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - name: Install cargo insta
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-insta
+      - name: Build ipl-hle
+        run: just ipl-hle build
+      - name: Cargo check
+        run: cargo check --all --exclude ipl-hle
+      - name: Insta test
+        run: cargo insta test --all --exclude ipl-hle
