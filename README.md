@@ -60,6 +60,21 @@ such as `--release`). This should produce an `app` executable inside `target/cho
 
 # Usage
 
+## Obtaining Lazuli
+
+You can obtain a `lazuli` executable from the [releases tab](https://github.com/vxpm/lazuli/releases)
+or by building it yourself. `lazuli` supports Linux and Windows as first-class OSes, with macOS being 
+supported on a best-effort basis.
+
+### Running on macOS
+
+If you have built lazuli yourself, you are ready to go. But if you have grabbed one of the nightly
+releases, you need to extract the zip file to your desired folder and remove it from quarantine:
+
+```sh
+xattr -d com.apple.quarantine lazuli
+```
+
 ## Running a game
 
 Once you have a `lazuli` executable (either by building it or by grabbing one of the nightly releases),
@@ -82,15 +97,6 @@ use the provided IPL ROM to boot. This will take you to the system menu, from wh
 the game.
 
 For more CLI options, `--help` is your friend.
-
-## Running on macOS
-
-If you have built lazuli yourself, you are ready to go. But if you have grabbed the zip file from 
-the nightly releases, just extract the zip file to your desired folder and remove it from quarantine:
-
-```sh
-xattr -d com.apple.quarantine lazuli
-```
 
 ## Inputs
 
