@@ -54,20 +54,23 @@ impl App {
 
         let disk: Box<dyn DiskModule> = if let Some(path) = &cfg.rom {
             let extension = path.extension().and_then(|ext| ext.to_str()).unwrap();
+            let file = std::fs::File::open(path)?;
+            let reader = BufReader::new(file);
             match extension {
                 "iso" => {
-                    let file = std::fs::File::open(path)?;
-                    let reader = BufReader::new(file);
                     Box::new(IsoModule(Some(reader)))
                 }
                 "rvz" => {
-                    let file = std::fs::File::open(path)?;
-                    let reader = BufReader::new(file);
                     let rvz = Rvz::new(reader).unwrap();
                     let rvz = RvzModule::new(rvz);
                     Box::new(rvz)
                 }
-                _ => todo!(),
+                "cso" => {
+                    todo!()
+                    // let cso = Cso::new(reader).unwrap();
+                    // let cso = CsoModule::new(cso);
+                }
+                _ => unimplemented!(),
             }
         } else {
             Box::new(NopDiskModule)
