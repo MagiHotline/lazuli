@@ -547,6 +547,7 @@ pub struct Interpreter {
     pub old_reset_high: bool,
 
     cached: Box<[Option<CachedIns>; 1 << 16]>,
+    early_exit: bool,
 }
 
 impl Default for Interpreter {
@@ -558,6 +559,7 @@ impl Default for Interpreter {
             accel: Default::default(),
             old_reset_high: Default::default(),
             cached: util::boxed_array(None),
+            early_exit: false,
         }
     }
 }
@@ -740,10 +742,10 @@ impl Interpreter {
     #[inline(always)]
     pub fn check_interrupts(&mut self, sys: &mut System) {
         // external interrupt does not care about status interrupt enable
-        if self.regs.status.external_interrupt_enable() && sys.dsp.control.interrupt() {
+        if self.regs.status.external_interrupt_enable() && sys.dsp.control.cpu_to_dsp_interrupt() {
             std::hint::cold_path();
             tracing::warn!("DSP external interrupt raised");
-            sys.dsp.control.set_interrupt(false);
+            sys.dsp.control.set_cpu_to_dsp_interrupt(false);
             self.raise_interrupt(Interrupt::External);
             return;
         }
@@ -1050,9 +1052,21 @@ impl Interpreter {
             Mmio::AccelInput => self.accel.input as u16,
 
             // Mailboxes
-            Mmio::DspMailboxHigh => sys.dsp.dsp_mailbox.high_and_status(),
+            Mmio::DspMailboxHigh => {
+                if sys.dsp.dsp_mailbox.status() && self.is_waiting_for_dsp_mail() {
+                    self.early_exit = true;
+                }
+
+                sys.dsp.dsp_mailbox.high_and_status()
+            }
             Mmio::DspMailboxLow => sys.dsp.dsp_mailbox.low(),
-            Mmio::CpuMailboxHigh => sys.dsp.cpu_mailbox.high_and_status(),
+            Mmio::CpuMailboxHigh => {
+                if !sys.dsp.cpu_mailbox.status() && self.is_waiting_for_cpu_mail() {
+                    self.early_exit = true;
+                }
+
+                sys.dsp.cpu_mailbox.high_and_status()
+            }
             Mmio::CpuMailboxLow => {
                 if sys.dsp.cpu_mailbox.status() {
                     tracing::trace!(
@@ -1103,7 +1117,11 @@ impl Interpreter {
             // Interrupt
             Mmio::InterruptRequest => {
                 if value > 0 {
-                    sys.dsp.control.set_dsp_interrupt(true);
+                    sys.dsp.control.set_dsp_to_cpu_interrupt(true);
+                    sys.scheduler
+                        .schedule(0, lazuli::system::pi::check_interrupts);
+                } else {
+                    tracing::warn!("weird DSP interrupt request write of zero, ignoring")
                 }
             }
 
@@ -1289,12 +1307,13 @@ impl Interpreter {
             start,
         ];
 
+        let mut read_imem = |addr| self.try_read_imem(addr).unwrap_or(0);
         let current = [
-            self.read_imem(start),
-            self.read_imem(start.wrapping_add(1)),
-            self.read_imem(start.wrapping_add(2)),
-            self.read_imem(start.wrapping_add(3)),
-            self.read_imem(start.wrapping_add(4)),
+            read_imem(start),
+            read_imem(start.wrapping_add(1)),
+            read_imem(start.wrapping_add(2)),
+            read_imem(start.wrapping_add(3)),
+            read_imem(start.wrapping_add(4)),
         ];
 
         current == pattern_a || current == pattern_b
@@ -1342,13 +1361,16 @@ impl Interpreter {
     }
 
     pub fn exec(&mut self, sys: &mut System, instructions: u32) {
+        self.early_exit = false;
+
         let mut i = 0;
         while i < instructions {
-            if sys.dsp.control.halt() {
+            if self.early_exit || sys.dsp.control.halt() {
                 std::hint::cold_path();
                 break;
             }
 
+            self.do_dma(sys);
             self.check_loop();
             self.check_interrupts(sys);
 

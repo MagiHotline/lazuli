@@ -5,6 +5,7 @@ use gekko::{Reg, SPR};
 use zerocopy::IntoBytes;
 
 use super::{Action, BlockBuilder};
+use crate::block::ExitReason;
 use crate::builder::InstructionInfo;
 
 /// Trait for transforming values into an IR value in a function.
@@ -60,6 +61,18 @@ impl IntoIrValue for u32 {
     }
 }
 
+impl IntoIrValue for i64 {
+    fn into_value(self, bd: &mut FunctionBuilder<'_>) -> ir::Value {
+        bd.ins().iconst(ir::types::I64, self)
+    }
+}
+
+impl IntoIrValue for u64 {
+    fn into_value(self, bd: &mut FunctionBuilder<'_>) -> ir::Value {
+        bd.ins().iconst(ir::types::I64, self as i64)
+    }
+}
+
 impl IntoIrValue for f32 {
     fn into_value(self, bd: &mut FunctionBuilder<'_>) -> ir::Value {
         bd.ins().f32const(self)
@@ -69,6 +82,12 @@ impl IntoIrValue for f32 {
 impl IntoIrValue for f64 {
     fn into_value(self, bd: &mut FunctionBuilder<'_>) -> ir::Value {
         bd.ins().f64const(self)
+    }
+}
+
+impl IntoIrValue for ExitReason {
+    fn into_value(self, bd: &mut FunctionBuilder<'_>) -> ir::Value {
+        self.to_bits().into_value(bd)
     }
 }
 
@@ -83,7 +102,7 @@ impl BlockBuilder<'_> {
         }
     }
 
-    /// Stub instruction - does absolutely nothing as a temporary implementation.
+    /// Stub instruction - flushes and exits as a temporary implementation.
     #[allow(dead_code)]
     pub fn stub(&mut self, ins: Ins) -> InstructionInfo {
         let mut parsed = ParsedIns::new();
@@ -91,11 +110,10 @@ impl BlockBuilder<'_> {
 
         tracing::warn!("emitting stubbed instruction ({parsed})");
 
-        self.bd.ins().nop();
         InstructionInfo {
             cycles: 2,
             auto_pc: true,
-            action: Action::FlushAndPrologue,
+            action: Action::Exit,
         }
     }
 

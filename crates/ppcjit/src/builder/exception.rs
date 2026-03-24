@@ -10,13 +10,13 @@ use crate::builder::{Action, InstructionInfo};
 const RFI_INFO: InstructionInfo = InstructionInfo {
     cycles: 2,
     auto_pc: false,
-    action: Action::FlushAndPrologue,
+    action: Action::Exit,
 };
 
 const EXCEPTION_INFO: InstructionInfo = InstructionInfo {
     cycles: 2,
     auto_pc: false,
-    action: Action::Prologue,
+    action: Action::ExitNoFlush,
 };
 
 pub fn raise_exception_sig(ptr_type: ir::Type, call_conv: CallConv) -> ir::Signature {
@@ -40,7 +40,6 @@ impl BlockBuilder<'_> {
             .iconst(ir::types::I16, exception as u64 as i64);
 
         self.flush();
-
         self.bd.ins().call(
             self.hooks.raise_exception,
             &[self.consts.regs_ptr, exception],
@@ -71,7 +70,7 @@ impl BlockBuilder<'_> {
 
         self.switch_to_bb(exit_block);
         self.raise_exception(Exception::FloatUnavailable);
-        self.prologue();
+        self.exit_with(EXCEPTION_INFO);
 
         self.switch_to_bb(continue_block);
         self.current_bb = continue_block;
@@ -79,7 +78,7 @@ impl BlockBuilder<'_> {
 
     pub fn sc(&mut self, _: Ins) -> InstructionInfo {
         if self.codegen.settings.nop_syscalls {
-            return self.nop(Action::FlushAndPrologue);
+            return self.nop(Action::Exit);
         }
 
         self.raise_exception(Exception::Syscall);
@@ -105,6 +104,7 @@ impl BlockBuilder<'_> {
         self.set(Reg::PC, new_pc);
         self.set(Reg::MSR, new_msr);
 
+        self.flush();
         self.call_generic_hook(self.hooks.msr_changed);
 
         RFI_INFO
