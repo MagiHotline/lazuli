@@ -213,8 +213,8 @@ impl App {
 const FRAMETIME: Duration = Duration::new(0, (1_000_000_000.0 / 60.0) as u32);
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::top("menu_bar").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.label("Lazuli");
                 ui.menu_button("🗖 View", |ui| {
@@ -285,7 +285,7 @@ impl eframe::App for App {
                 * 2;
         }
 
-        ctx.input(|i| {
+        ui.ctx().input(|i| {
             let button = |key| i.key_down(key);
             let trigger = |key| if i.key_down(key) { 255 } else { 0 };
             let axis = |low, high| match (i.key_down(low), i.key_down(high)) {
@@ -326,7 +326,7 @@ impl eframe::App for App {
             renderer: &mut self.renderer,
         };
 
-        egui::CentralPanel::default().show(ctx, |_| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             let mut close = None;
             for (index, window_state) in self.windows.iter_mut().enumerate() {
                 let mut open = true;
@@ -340,7 +340,7 @@ impl eframe::App for App {
                     window = window.default_size(size);
                 }
 
-                window.show(ctx, |ui| {
+                window.show(ui.ctx(), |ui| {
                     window_state.window.show(ui, &mut context);
                 });
 
@@ -367,12 +367,12 @@ impl eframe::App for App {
         }
 
         let remaining = FRAMETIME.saturating_sub(self.last_update.elapsed());
-        ctx.request_repaint_after(remaining);
+        ui.ctx().request_repaint_after(remaining);
         self.last_update = Instant::now() + remaining;
 
         if std::mem::replace(&mut self.organize, false) {
-            ctx.request_discard("organize");
-            ctx.memory_mut(|mem| mem.reset_areas());
+            ui.ctx().request_discard("organize");
+            ui.ctx().memory_mut(|mem| mem.reset_areas());
         }
     }
 
@@ -420,7 +420,7 @@ fn main() -> Result<()> {
         let mut required_features = wgpu::Features::empty();
         required_features |= wgpu::Features::DUAL_SOURCE_BLENDING;
         required_features |= wgpu::Features::FLOAT32_FILTERABLE;
-        required_features |= wgpu::Features::PUSH_CONSTANTS;
+        required_features |= wgpu::Features::IMMEDIATES;
         required_features |= wgpu::Features::CLEAR_TEXTURE;
 
         if cfg.mappable_vram
@@ -434,7 +434,7 @@ fn main() -> Result<()> {
 
         let mut required_limits = wgpu::Limits::defaults();
         required_limits.max_texture_dimension_2d = 8192;
-        required_limits.max_push_constant_size = 64 + 32;
+        required_limits.max_immediate_size = 64 + 32;
 
         wgpu::DeviceDescriptor {
             label: Some("lazuli wgpu device"),
@@ -458,11 +458,11 @@ fn main() -> Result<()> {
             wgpu_setup: WgpuSetup::CreateNew(WgpuSetupCreateNew {
                 instance_descriptor: wgpu::InstanceDescriptor {
                     backends: wgpu::Backends::PRIMARY,
-                    ..Default::default()
+                    ..wgpu::InstanceDescriptor::new_without_display_handle()
                 },
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 device_descriptor,
-                ..Default::default()
+                ..WgpuSetupCreateNew::without_display_handle()
             }),
             ..Default::default()
         },

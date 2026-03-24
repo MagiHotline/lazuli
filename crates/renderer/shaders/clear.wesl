@@ -3,7 +3,7 @@ struct State {
     depth: f32,
 }
 
-var<push_constant> state: State;
+var<immediate> state: State;
 
 var<private> POSITIONS: array<vec2f, 4> = array<vec2f, 4>(
     vec2f(-1.0, 1.0),

@@ -155,6 +155,7 @@ impl Renderer {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             })
             .forget_lifetime();
 
@@ -654,16 +655,10 @@ impl Renderer {
         let pipeline = self.pipeline_cache.get(&self.device, &self.pipeline_config);
 
         self.current_pass.set_pipeline(pipeline);
-        self.current_pass.set_push_constants(
-            wgpu::ShaderStages::FRAGMENT,
-            0,
-            scaling_array.as_bytes(),
-        );
-        self.current_pass.set_push_constants(
-            wgpu::ShaderStages::FRAGMENT,
-            64,
-            lodbias_array.as_bytes(),
-        );
+        self.current_pass
+            .set_immediates(0, scaling_array.as_bytes());
+        self.current_pass
+            .set_immediates(64, lodbias_array.as_bytes());
         self.current_pass.set_bind_group(0, Some(&data_group), &[]);
         self.current_pass
             .set_bind_group(1, Some(&textures_group), &[]);
@@ -709,6 +704,7 @@ impl Renderer {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             })
             .forget_lifetime();
 
