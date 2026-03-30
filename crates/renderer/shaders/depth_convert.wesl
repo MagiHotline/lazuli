@@ -14,7 +14,7 @@ const FMT_Z16B: Format = 0xC;
 
 @group(0) @binding(0) var depth_texture: texture_2d<f32>;
 @group(0) @binding(1) var color_texture: texture_storage_2d<rgba8unorm, write>;
-var<push_constant> format: Format;
+var<immediate> format: Format;
 
 @compute @workgroup_size(8, 8, 1)
 fn render(@builtin(global_invocation_id) global_id: vec3u) {

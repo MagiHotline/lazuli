@@ -20,10 +20,7 @@ impl Cleaner {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::FRAGMENT,
-                range: 0..20,
-            }],
+            immediate_size: 20,
         });
 
         let shader = include_wesl!("clear");
@@ -73,12 +70,12 @@ impl Cleaner {
                     },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
-                        depth_write_enabled: $depth,
-                        depth_compare: wgpu::CompareFunction::Always,
+                        depth_write_enabled: Some($depth),
+                        depth_compare: Some(wgpu::CompareFunction::Always),
                         stencil: wgpu::StencilState::default(),
                         bias: wgpu::DepthBiasState::default(),
                     }),
-                    multiview: None,
+                    multiview_mask: None,
                     cache: None,
                 }
             };
@@ -114,7 +111,7 @@ impl Cleaner {
         };
 
         pass.set_pipeline(pipeline);
-        pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, 0, state.as_bytes());
+        pass.set_immediates(0, state.as_bytes());
         pass.draw(0..4, 0..1);
     }
 }

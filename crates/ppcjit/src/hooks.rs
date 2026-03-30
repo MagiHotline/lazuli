@@ -4,15 +4,25 @@ use gekko::{Address, Cpu, QuantReg};
 use strum::FromRepr;
 
 use crate::FastmemLut;
-use crate::block::{Info, LinkData};
+use crate::block::{BlockFn, Executed, ExitReason};
 
+/// Caller context.
 pub type Context = std::ffi::c_void;
+/// Data specific to a block exit.
+pub type ExitData = std::ffi::c_void;
 
 pub type GetRegistersHook = extern "C-unwind" fn(*mut Context) -> *mut Cpu;
 pub type GetFastmemHook = extern "C-unwind" fn(*mut Context) -> *mut FastmemLut;
 
-pub type FollowLinkHook = extern "C-unwind" fn(*const Info, *mut Context, *mut LinkData) -> bool;
-pub type TryLinkHook = extern "C-unwind" fn(*mut Context, Address, *mut LinkData);
+/// Hook called on any block exit.
+///
+/// Each exit has some data associated with it which can be used by this hook as it wish. The size
+/// of the data is configurable in the JIT [`Settings`](super::Settings).
+///
+/// Should return a pointer to a block to jump to and keep the chain executing or `None` if you
+/// wish to exit the chain. In other words, this allows for _block linking_.
+pub type ExitHook =
+    extern "C-unwind" fn(*const Context, *mut ExitData, ExitReason, Executed) -> Option<BlockFn>;
 
 pub type ReadHook<T> = extern "C-unwind" fn(*mut Context, Address, *mut T) -> bool;
 pub type WriteHook<T> = extern "C-unwind" fn(*mut Context, Address, T) -> bool;
@@ -28,8 +38,7 @@ pub type GenericHook = extern "C-unwind" fn(*mut Context);
 pub enum HookKind {
     GetRegisters,
     GetFastmem,
-    FollowLink,
-    TryLink,
+    Exit,
     ReadI8,
     ReadI16,
     ReadI32,
@@ -54,16 +63,10 @@ pub enum HookKind {
 
 /// External functions that JITed code calls.
 pub struct Hooks {
-    /// Hook that returns a pointer to the CPU state struct given the context.
     pub get_registers: GetRegistersHook,
-    /// Hook that returns a pointer to the fastmem LUT given the context.
     pub get_fastmem: GetFastmemHook,
 
-    /// Hook that checks whether a linked block should be followed or the execution should return.
-    pub follow_link: FollowLinkHook,
-    /// Tries to link this block to another one given the current context, the destination address
-    /// and a pointer to where the linked block function pointer should be stored.
-    pub try_link: TryLinkHook,
+    pub exit: ExitHook,
 
     // memory
     pub read_i8: ReadHook<i8>,
@@ -114,8 +117,7 @@ impl Hooks {
         Self {
             get_registers: stub!(),
             get_fastmem: stub!(),
-            follow_link: stub!(),
-            try_link: stub!(),
+            exit: stub!(),
             read_i8: stub!(),
             write_i8: stub!(),
             read_i16: stub!(),
@@ -161,28 +163,16 @@ impl Hooks {
         }
     }
 
-    /// Returns the function signature for the `follow_link` hook.
-    pub(crate) fn follow_link_sig(ptr_type: ir::Type, call_conv: CallConv) -> ir::Signature {
-        ir::Signature {
-            params: vec![
-                ir::AbiParam::new(ptr_type), // info
-                ir::AbiParam::new(ptr_type), // ctx
-                ir::AbiParam::new(ptr_type), // lnk data
-            ],
-            returns: vec![ir::AbiParam::new(ir::types::I8)], // follow?
-            call_conv,
-        }
-    }
-
-    /// Returns the function signature for the `try_link` hook.
-    pub(crate) fn try_link_sig(ptr_type: ir::Type, call_conv: CallConv) -> ir::Signature {
+    /// Returns the function signature for the exit hook.
+    pub(crate) fn exit_sig(ptr_type: ir::Type, call_conv: CallConv) -> ir::Signature {
         ir::Signature {
             params: vec![
                 ir::AbiParam::new(ptr_type),       // ctx
-                ir::AbiParam::new(ir::types::I32), // address to link to
-                ir::AbiParam::new(ptr_type),       // link ptr storage
+                ir::AbiParam::new(ptr_type),       // exit data
+                ir::AbiParam::new(ir::types::I64), // reason
+                ir::AbiParam::new(ir::types::I32), // executed
             ],
-            returns: vec![],
+            returns: vec![ir::AbiParam::new(ptr_type)], // linked block
             call_conv,
         }
     }

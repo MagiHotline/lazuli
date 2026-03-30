@@ -2,18 +2,28 @@ mod icache;
 mod mapping;
 mod table;
 
+use std::alloc::Layout;
+use std::path::PathBuf;
+
 use indexmap::IndexSet;
-use lazuli::cores::{CpuCore, Executed};
+use lazuli::cores::{CpuCore, Info};
 use lazuli::gekko::{self, Cpu, DEQUANTIZATION_LUT, QUANTIZATION_LUT, QuantReg, QuantizedType};
 use lazuli::system::{self, System};
 use lazuli::{Address, Cycles, Primitive};
 use mapping::Mapping;
-use ppcjit::block::{BlockFn, Info, LinkData, Pattern};
+use ppcjit::block::{BlockFn, Executed, ExitKind, ExitReason, Pattern};
 use ppcjit::hooks::*;
 use ppcjit::{Block, FastmemLut};
 
 #[rustfmt::skip]
 pub use ppcjit;
+
+#[repr(C)]
+struct ExitData {
+    pub linked: Option<BlockFn>,
+    pub linked_pattern: Pattern,
+    pub linked_return: Option<BlockFn>,
+}
 
 /// Identifier for a block in a [`Blocks`] storage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +31,8 @@ pub struct BlockId(usize);
 
 pub struct StoredBlock {
     pub inner: Block,
-    pub links: Vec<*mut Option<LinkData>>,
+    linked_from: Vec<*mut ExitData>,
+    linked_return_from: Vec<*mut ExitData>,
 }
 
 // TODO: this is problematic
@@ -101,7 +112,8 @@ impl Blocks {
 
         self.storage.push(StoredBlock {
             inner: block,
-            links: Vec::new(),
+            linked_from: Vec::new(),
+            linked_return_from: Vec::new(),
         });
 
         self.insert_mapping(logical, addr, Mapping { id, length });
@@ -148,14 +160,23 @@ impl Blocks {
                 panic!("mapping {dep} is listed as dependent on a page but it does not exist");
             };
 
+            // invalidate links of blocks that depend on this block
             let Some(mapping) = mapping else {
                 continue;
             };
 
             let block = &mut self.storage[mapping.id.0];
-            for link in block.links.drain(..) {
-                let link = unsafe { link.as_mut().unwrap() };
-                *link = None;
+            for data in block.linked_from.drain(..) {
+                unsafe {
+                    (*data).linked = None;
+                    (*data).linked_pattern = Pattern::None;
+                }
+            }
+
+            for data in block.linked_return_from.drain(..) {
+                unsafe {
+                    (*data).linked_return = None;
+                }
             }
         }
 
@@ -172,12 +193,6 @@ impl Blocks {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExitReason {
-    None,
-    IdleLooping,
-}
-
 /// Context to be passed in for execution of JIT blocks.
 struct Context<'a> {
     /// The system state, so that the JIT block can operate on it.
@@ -186,16 +201,18 @@ struct Context<'a> {
     blocks: &'a mut Blocks,
     /// ICache
     icache: &'a mut icache::Cache,
+    /// A shadow stack for calls and returns.
+    shadow_stack: &'a mut Vec<(Address, BlockFn)>,
+    /// Cycles executed.   
+    executed_cycles: u32,
+    /// Instructions executed.   
+    executed_instructions: u32,
     /// Amount of cycles we are trying to execute.
     target_cycles: u32,
     /// Maximum instructions we should execute.
     max_instructions: u32,
-    /// Whether to forcely disable following links.
-    force_no_link: bool,
-    /// Last followed link.
+    /// Last followed link, if any.
     last_followed_link: Option<BlockFn>,
-    /// Reason for exit.
-    exit_reason: ExitReason,
 }
 
 const CTX_HOOKS: Hooks = {
@@ -211,58 +228,108 @@ const CTX_HOOKS: Hooks = {
         }
     }
 
-    extern "C-unwind" fn follow_link(
-        info: &Info,
+    extern "C-unwind" fn exit(
         ctx: &mut Context,
-        link_data: &mut Option<LinkData>,
-    ) -> bool {
-        // if we have reached cycle or instruction limit, don't follow links, just exit.
-        if ctx.force_no_link
-            || info.cycles >= ctx.target_cycles
-            || info.instructions >= ctx.max_instructions
-        {
-            ctx.last_followed_link = None;
-            return false;
+        data: &mut ExitData,
+        reason: ExitReason,
+        block_executed: Executed,
+    ) -> Option<BlockFn> {
+        ctx.executed_cycles += block_executed.cycles as u32;
+        ctx.executed_instructions += block_executed.instructions as u32;
+        ctx.sys.scheduler.advance(block_executed.cycles as u64);
+
+        // should we exit?
+        let has_pending = ctx.sys.scheduler.has_pending();
+        let limits_reached = ctx.executed_cycles >= ctx.target_cycles
+            || ctx.executed_instructions >= ctx.max_instructions;
+
+        if has_pending || limits_reached {
+            std::hint::cold_path();
+            return None;
         }
 
-        let Some(link_data) = link_data else {
-            return true;
-        };
+        // if not, first try detecting idle loops
+        if matches!(
+            data.linked_pattern,
+            Pattern::IdleBasic | Pattern::IdleVolatileRead
+        ) && ctx.last_followed_link == data.linked
+        {
+            std::hint::cold_path();
 
-        // otherwise, detect whether we are idle looping and exit too
-        let follow = match link_data.pattern {
-            Pattern::IdleBasic | Pattern::IdleVolatileRead => {
-                if ctx.last_followed_link == Some(link_data.block) {
-                    ctx.exit_reason = ExitReason::IdleLooping;
-                    false
-                } else {
-                    true
+            let delta = if let Some(delta) = ctx.sys.scheduler.until_next() {
+                delta
+            } else {
+                (ctx.target_cycles - ctx.executed_cycles) as u64
+            }
+            .min(ctx.target_cycles as u64);
+
+            ctx.sys.scheduler.advance(delta);
+            ctx.executed_cycles += delta as u32;
+            return None;
+        }
+
+        let reason_kind = reason.kind();
+        let reason_branch = reason.branch();
+
+        // otherwise, try linking
+        if data.linked.is_none() {
+            std::hint::cold_path();
+
+            // try linking
+            match (reason_kind, reason_branch.indirect()) {
+                // fixed address branching
+                (ExitKind::Sync, _) | (ExitKind::Branch, false) => {
+                    let source = ctx.sys.cpu.pc;
+                    let logical = ctx.sys.cpu.supervisor.config.msr.instr_addr_translation();
+                    if let Some(mapping) = ctx.blocks.get_mapping(logical, source) {
+                        let stored = ctx.blocks.storage.get_mut(mapping.id.0).unwrap();
+                        data.linked = Some(stored.inner.as_ptr());
+                        data.linked_pattern = stored.inner.meta().pattern;
+                        stored.linked_from.push(data);
+                    }
+                }
+                // indirect branching
+                (ExitKind::Branch, true) => (),
+            }
+        }
+
+        // if it is a call, also push into shadow stack
+        if reason_kind == ExitKind::Branch && reason_branch.call() {
+            let target = Address(reason.address()) + 4;
+            if data.linked_return.is_none() {
+                std::hint::cold_path();
+                let logical = ctx.sys.cpu.supervisor.config.msr.instr_addr_translation();
+                if let Some(mapping) = ctx.blocks.get_mapping(logical, target) {
+                    let stored = ctx.blocks.storage.get_mut(mapping.id.0).unwrap();
+                    data.linked_return = Some(stored.inner.as_ptr());
+                    stored.linked_return_from.push(data);
                 }
             }
-            _ => true,
-        };
 
-        // if not idle looping, then sure, follow link
-        ctx.last_followed_link = Some(link_data.block);
-        follow
-    }
-
-    extern "C-unwind" fn try_link(
-        ctx: &mut Context,
-        addr: Address,
-        link_data: &mut Option<LinkData>,
-    ) {
-        debug_assert!(link_data.is_none());
-        let logical = ctx.sys.cpu.supervisor.config.msr.instr_addr_translation();
-        if let Some(mapping) = ctx.blocks.get_mapping(logical, addr) {
-            let stored = ctx.blocks.storage.get_mut(mapping.id.0).unwrap();
-            *link_data = Some(LinkData {
-                block: stored.inner.as_ptr(),
-                pattern: stored.inner.meta().pattern,
-            });
-
-            stored.links.push(&raw mut *link_data);
+            if let Some(linked) = data.linked_return {
+                ctx.shadow_stack.push((target, linked));
+            }
         }
+
+        // and finally, try following linked or shadow stack
+        let linked =
+            if reason_kind == ExitKind::Branch && !reason_branch.call() && reason_branch.indirect()
+            {
+                std::hint::cold_path();
+                if let Some((addr, block)) = ctx.shadow_stack.pop()
+                    && addr == ctx.sys.cpu.pc
+                {
+                    Some(block)
+                } else {
+                    ctx.shadow_stack.clear();
+                    None
+                }
+            } else {
+                data.linked
+            };
+
+        ctx.last_followed_link = linked;
+        linked
     }
 
     extern "C-unwind" fn read<P: Primitive>(
@@ -468,9 +535,7 @@ const CTX_HOOKS: Hooks = {
         let get_fastmem =
             transmute::<_, GetFastmemHook>(get_fastmem as extern "C-unwind" fn(_) -> _);
 
-        let follow_link =
-            transmute::<_, FollowLinkHook>(follow_link as extern "C-unwind" fn(_, _, _) -> _);
-        let try_link = transmute::<_, TryLinkHook>(try_link as extern "C-unwind" fn(_, _, _));
+        let exit = transmute::<_, ExitHook>(exit as extern "C-unwind" fn(_, _, _, _) -> _);
 
         let read_i8 =
             transmute::<_, ReadHook<i8>>(read::<i8> as extern "C-unwind" fn(_, _, _) -> _);
@@ -515,8 +580,7 @@ const CTX_HOOKS: Hooks = {
             get_registers,
             get_fastmem,
 
-            follow_link,
-            try_link,
+            exit,
 
             read_i8,
             write_i8,
@@ -548,18 +612,21 @@ const CTX_HOOKS: Hooks = {
 };
 
 /// JIT configuration.
-pub struct Config {
+pub struct Settings {
     /// Maximum number of instructions per JIT block.
     pub instr_per_block: u32,
-    /// Code generation settings.
-    pub jit_settings: ppcjit::Settings,
+    /// Codegen settings.
+    pub codegen: ppcjit::CodegenSettings,
+    /// Path to the block cache directory.
+    pub cache_path: Option<PathBuf>,
 }
 
 pub struct Core {
-    pub config: Config,
+    pub settings: Settings,
     pub compiler: ppcjit::Jit,
     pub blocks: Blocks,
     pub icache: icache::Cache,
+    pub shadow_stack: Vec<(Address, BlockFn)>,
 }
 
 fn closest_breakpoint(pc: Address, breakpoints: &[Address]) -> Address {
@@ -580,14 +647,22 @@ fn closest_breakpoint(pc: Address, breakpoints: &[Address]) -> Address {
 }
 
 impl Core {
-    pub fn new(config: Config) -> Self {
-        let compiler = ppcjit::Jit::new(config.jit_settings.clone(), CTX_HOOKS);
+    pub fn new(settings: Settings) -> Self {
+        let compiler = ppcjit::Jit::new(
+            ppcjit::Settings {
+                codegen: settings.codegen.clone(),
+                cache_path: settings.cache_path.clone(),
+                exit_data_layout: Layout::new::<ExitData>(),
+            },
+            CTX_HOOKS,
+        );
 
         Self {
-            config,
+            settings,
             compiler,
             blocks: Blocks::default(),
             icache: Default::default(),
+            shadow_stack: Vec::new(),
         }
     }
 
@@ -617,7 +692,9 @@ impl Core {
             Ok(b) => b,
             Err(e) => match e {
                 ppcjit::BuildError::EmptyBlock => panic!("built empty block at pc {}", sys.cpu.pc),
-                ppcjit::BuildError::Builder { source } => panic!("block builder error: {}", source),
+                ppcjit::BuildError::Builder { source } => {
+                    panic!("block builder error at pc {}: {}", sys.cpu.pc, source)
+                }
                 ppcjit::BuildError::Codegen {
                     source,
                     sequence,
@@ -647,8 +724,8 @@ impl Core {
         sys: &mut System,
         target_cycles: u32,
         max_instructions: u32,
-        force_no_link: bool,
-    ) -> Executed {
+        _force_no_link: bool,
+    ) -> Info {
         let logical = sys.cpu.supervisor.config.msr.instr_addr_translation();
         let stored = self
             .blocks
@@ -670,29 +747,22 @@ impl Core {
             sys,
             blocks: &mut self.blocks,
             icache: &mut self.icache,
+            shadow_stack: &mut self.shadow_stack,
+            executed_cycles: 0,
+            executed_instructions: 0,
             target_cycles,
             max_instructions,
-            force_no_link,
-
             last_followed_link: None,
-            exit_reason: ExitReason::None,
         };
 
-        let info = unsafe {
+        unsafe {
             self.compiler
-                .call(&raw mut ctx as *mut ppcjit::hooks::Context, block)
-        };
+                .call(&raw mut ctx as *mut ppcjit::hooks::Context, block);
+        }
 
-        let cycles = if ctx.exit_reason == ExitReason::IdleLooping {
-            std::hint::cold_path();
-            Cycles(target_cycles as u64)
-        } else {
-            Cycles(info.cycles as u64)
-        };
-
-        Executed {
-            instructions: info.instructions,
-            cycles,
+        Info {
+            executed_cycles: Cycles(ctx.executed_cycles as u64),
+            executed_instructions: ctx.executed_instructions,
             hit_breakpoint: false,
         }
     }
@@ -703,7 +773,7 @@ impl Core {
         target_cycles: u32,
         max_instructions: u32,
         force_no_link: bool,
-    ) -> Executed {
+    ) -> Info {
         let logical = sys.cpu.supervisor.config.msr.instr_addr_translation();
         let block = self
             .blocks
@@ -713,9 +783,9 @@ impl Core {
         if block.is_none() {
             // avoid trying to compile unimplemented instructions in debug mode
             let instructions = if cfg!(debug_assertions) {
-                self.config.instr_per_block.min(max_instructions)
+                self.settings.instr_per_block.min(max_instructions)
             } else {
-                self.config.instr_per_block
+                self.settings.instr_per_block
             };
 
             let block = self.compile(sys, sys.cpu.pc, instructions);
@@ -730,53 +800,26 @@ impl Core {
         sys: &mut System,
         cycles: Cycles,
         breakpoints: &[Address],
-    ) -> Executed {
-        let mut executed = Executed::default();
-        while executed.cycles < cycles {
-            // detect mailbox idle loop
-            let logical = sys.cpu.supervisor.config.msr.instr_addr_translation();
-            if let Some(stored) = self.blocks.get(logical, sys.cpu.pc)
-                && stored.inner.meta().pattern == Pattern::Call
-                && let Some(dest) = stored.inner.meta().seq.is_call(sys.cpu.pc)
-            {
-                std::hint::cold_path();
+    ) -> Info {
+        let max_instructions = if BREAKPOINTS {
+            let closest_breakpoint = closest_breakpoint(sys.cpu.pc, breakpoints);
+            (closest_breakpoint.value() - sys.cpu.pc.value()) / 4
+        } else {
+            u32::MAX
+        };
 
-                if let Some(func_block) = self.blocks.get(logical, dest)
-                    && func_block.inner.meta().pattern == Pattern::GetMailboxStatusFunc
-                    && sys.dsp.cpu_mailbox.status()
-                {
-                    std::hint::cold_path();
-                    executed.cycles = cycles;
-                    executed.instructions = 1;
-                    break;
-                }
-            }
-
-            let max_instructions = if BREAKPOINTS {
-                let closest_breakpoint = closest_breakpoint(sys.cpu.pc, breakpoints);
-                (closest_breakpoint.value() - sys.cpu.pc.value()) / 4
-            } else {
-                u32::MAX
-            };
-
-            // execute
-            let target_cycles = cycles - executed.cycles;
-            let e = self.cached_exec(sys, target_cycles.0 as u32, max_instructions, BREAKPOINTS);
-            executed.instructions += e.instructions;
-            executed.cycles += e.cycles;
-
-            if BREAKPOINTS && breakpoints.contains(&sys.cpu.pc) {
-                executed.hit_breakpoint = true;
-                break;
-            }
+        // execute
+        let mut info = self.cached_exec(sys, cycles.0 as u32, max_instructions, BREAKPOINTS);
+        if BREAKPOINTS && breakpoints.contains(&sys.cpu.pc) {
+            info.hit_breakpoint = true;
         }
 
-        executed
+        info
     }
 }
 
 impl CpuCore for Core {
-    fn exec(&mut self, sys: &mut System, cycles: Cycles, breakpoints: &[Address]) -> Executed {
+    fn exec(&mut self, sys: &mut System, cycles: Cycles, breakpoints: &[Address]) -> Info {
         if breakpoints.is_empty() {
             self.exec_inner::<false>(sys, cycles, &[])
         } else {
@@ -784,7 +827,10 @@ impl CpuCore for Core {
         }
     }
 
-    fn step(&mut self, sys: &mut System) -> Executed {
-        self.uncached_exec(sys, u32::MAX, 1, true)
+    fn step(&mut self, sys: &mut System) -> Info {
+        let info = self.uncached_exec(sys, u32::MAX, 1, true);
+        sys.process_events();
+
+        info
     }
 }

@@ -66,16 +66,16 @@ mod cache {
             let depth_stencil = if config.depth.enabled {
                 wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: config.depth.write,
-                    depth_compare: config.depth.compare,
+                    depth_write_enabled: Some(config.depth.write),
+                    depth_compare: Some(config.depth.compare),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }
             } else {
                 wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Always,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }
@@ -184,7 +184,7 @@ mod cache {
                     alpha_to_coverage_enabled: false,
                 },
                 depth_stencil: Some(depth_stencil),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         }
@@ -245,11 +245,8 @@ mod cache {
 
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&group0_layout, &group1_layout],
-                push_constant_ranges: &[wgpu::PushConstantRange {
-                    stages: wgpu::ShaderStages::FRAGMENT,
-                    range: 0..96,
-                }],
+                bind_group_layouts: &[Some(&group0_layout), Some(&group1_layout)],
+                immediate_size: 96,
             });
 
             Self {

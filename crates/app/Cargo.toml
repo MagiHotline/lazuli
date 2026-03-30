@@ -24,7 +24,7 @@ serde.workspace = true
 indexmap.workspace = true
 bytesize.workspace = true
 
-eframe = { version = "0.33", features = [
+eframe = { git = "https://github.com/emilk/egui", rev = "4feac89", features = [
     # platforms
     "wayland",
     "x11",
@@ -36,7 +36,7 @@ eframe = { version = "0.33", features = [
     "persistence",
     "default_fonts",
 ], default-features = false }
-egui_extras = "0.33"
+egui_extras = { git = "https://github.com/emilk/egui", rev = "4feac89" }
 tracing-appender = "0.2"
 ron = { version = "0.11" }
 typetag = "0.2"

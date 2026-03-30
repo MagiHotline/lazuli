@@ -58,7 +58,7 @@ struct PipelineImmediates {
     lodbias: array<vec4f, 2>,
 }
 
-var<push_constant> pipeline_immediates: PipelineImmediates;
+var<immediate> pipeline_immediates: PipelineImmediates;
 
 // Data group
 @group(0) @binding(0) var<storage> vertices: array<VertexInput>;

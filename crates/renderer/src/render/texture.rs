@@ -66,6 +66,12 @@ impl Cache {
             wgpu::FilterMode::Nearest
         };
 
+        let mipmap_filter = if sampler.mode.min_filter().is_linear() {
+            wgpu::MipmapFilterMode::Linear
+        } else {
+            wgpu::MipmapFilterMode::Nearest
+        };
+
         let anisotropy_clamp = if sampler.mode.mag_linear() && sampler.mode.min_filter().is_linear()
         {
             16
@@ -86,7 +92,7 @@ impl Cache {
             address_mode_v: address_mode(sampler.mode.wrap_v()),
             mag_filter,
             min_filter,
-            mipmap_filter: min_filter,
+            mipmap_filter,
             anisotropy_clamp,
             lod_min_clamp: sampler.lods.min(),
             lod_max_clamp: sampler.lods.max(),

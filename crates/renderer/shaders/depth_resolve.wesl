@@ -4,7 +4,7 @@ struct VertexOutput {
 };
 
 @group(0) @binding(0) var depth_texture: texture_depth_multisampled_2d;
-var<push_constant> uvs: vec4f;
+var<immediate> uvs: vec4f;
 
 var<private> POSITIONS: array<vec2f, 4> = array<vec2f, 4>(
     vec2f(-1.0, 1.0),
@@ -40,19 +40,19 @@ fn fs_main(in: VertexOutput) -> @location(0) f32 {
     // compute mean of samples
     let samples = textureNumSamples(depth_texture);
     var acc = 0f;
-    var min = 1f;
-    var max = 0f;
+    var min_sample = 1f;
+    var max_sample = 0f;
     for (var i: u32 = 0; i < samples; i += 1) {
         let sample = textureLoad(depth_texture, vec2u(x, y), i);
         acc += sample;
-        min = min(min, sample);
-        max = max(max, sample);
+        min_sample = min(min_sample, sample);
+        max_sample = max(max_sample, sample);
     }
 
-    let threshold = min * 0.05;
-    let distance = max - min;
+    let threshold = min_sample * 0.05;
+    let distance = max_sample - min_sample;
     if distance >= threshold {
-        return min;
+        return min_sample;
     } else {
         return acc / f32(samples);
     }

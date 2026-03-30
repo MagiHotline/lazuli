@@ -35,11 +35,8 @@ impl XfbBlitter {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&group_layout],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::VERTEX,
-                range: 0..16,
-            }],
+            bind_group_layouts: &[Some(&group_layout)],
+            immediate_size: 16,
         });
 
         let shader = include_wesl!("xfb_blit");
@@ -78,7 +75,7 @@ impl XfbBlitter {
             }),
             multisample: Default::default(),
             depth_stencil: None,
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -89,7 +86,7 @@ impl XfbBlitter {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -141,7 +138,7 @@ impl XfbBlitter {
         });
 
         pass.set_pipeline(&self.pipeline);
-        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
+        pass.set_immediates(0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
     }
@@ -179,11 +176,8 @@ impl ColorBlitter {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&group_layout],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::VERTEX,
-                range: 0..16,
-            }],
+            bind_group_layouts: &[Some(&group_layout)],
+            immediate_size: 16,
         });
 
         let shader = include_wesl!("color_blit");
@@ -222,7 +216,7 @@ impl ColorBlitter {
             }),
             multisample: Default::default(),
             depth_stencil: None,
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -233,7 +227,7 @@ impl ColorBlitter {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -283,7 +277,7 @@ impl ColorBlitter {
         });
 
         pass.set_pipeline(&self.pipeline);
-        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
+        pass.set_immediates(0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
     }
@@ -308,6 +302,7 @@ impl ColorBlitter {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         self.blit_to_target(device, source, top_left, dimensions, &mut pass);
@@ -364,20 +359,14 @@ impl DepthBlitter {
 
         let resolve_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&resolve_group_layout],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::VERTEX,
-                range: 0..16,
-            }],
+            bind_group_layouts: &[Some(&resolve_group_layout)],
+            immediate_size: 16,
         });
 
         let blit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&blit_group_layout],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::VERTEX,
-                range: 0..16,
-            }],
+            bind_group_layouts: &[Some(&blit_group_layout)],
+            immediate_size: 16,
         });
 
         let resolve_shader = include_wesl!("depth_resolve");
@@ -422,7 +411,7 @@ impl DepthBlitter {
             }),
             multisample: Default::default(),
             depth_stencil: None,
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -456,7 +445,7 @@ impl DepthBlitter {
             }),
             multisample: Default::default(),
             depth_stencil: None,
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -467,7 +456,7 @@ impl DepthBlitter {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -519,6 +508,7 @@ impl DepthBlitter {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         let uvs = Vec4::new(
@@ -538,7 +528,7 @@ impl DepthBlitter {
         });
 
         pass.set_pipeline(&self.resolve_pipeline);
-        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
+        pass.set_immediates(0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
 
@@ -584,7 +574,7 @@ impl DepthBlitter {
         });
 
         pass.set_pipeline(&self.blit_pipeline);
-        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, uvs.as_bytes());
+        pass.set_immediates(0, uvs.as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..4, 0..1);
     }
@@ -612,6 +602,7 @@ impl DepthBlitter {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         self.blit_resolved_to_target(
@@ -662,11 +653,8 @@ impl Converter {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&group_layout],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::COMPUTE,
-                range: 0..4,
-            }],
+            bind_group_layouts: &[Some(&group_layout)],
+            immediate_size: 4,
         });
 
         let color_shader = include_wesl!("color_convert");
@@ -742,7 +730,7 @@ impl Converter {
 
         let size = color.texture().size();
         pass.set_pipeline(&self.color_pipeline);
-        pass.set_push_constants(0, (format as u32).as_bytes());
+        pass.set_immediates(0, (format as u32).as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
 
@@ -779,7 +767,7 @@ impl Converter {
 
         let size = depth.texture().size();
         pass.set_pipeline(&self.depth_pipeline);
-        pass.set_push_constants(0, (format as u32).as_bytes());
+        pass.set_immediates(0, (format as u32).as_bytes());
         pass.set_bind_group(0, &group, &[]);
         pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
 
