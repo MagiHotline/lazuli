@@ -58,13 +58,7 @@ impl App {
             let file = std::fs::File::open(path)?;
             let reader = BufReader::new(file);
             match extension {
-<<<<<<< HEAD
-                "iso" => {
-                    Box::new(IsoModule(Some(reader)))
-                }
-=======
                 "iso" => Box::new(IsoModule(Some(reader))),
->>>>>>> ddd415dbdcd552ad4a9037dfb3cda1e03d63e948
                 "rvz" => {
                     let rvz = Rvz::new(reader).unwrap();
                     let rvz = RvzModule::new(rvz);
